@@ -2,10 +2,10 @@
 Browser specialist agent for the support orchestrator demo.
 
 Handles issue reproduction intents delegated by the orchestrator:
-- reproduce_issue: Navigate to a URL, interact with elements, check console for errors
+- reproduce_issue: Simulate browser-based reproduction using a mock tool
 
-Uses Claude-in-Chrome MCP tools (navigate, computer, read_console_messages,
-read_page) loaded via ToolSearch at runtime.
+Uses a LangChain tool (simulate_browser_reproduction) to generate realistic
+mock reproduction data for demo purposes.
 
 Run standalone:
     THENVOI_AGENT_ID=<id> THENVOI_API_KEY=<key> python -m agents.browser.agent
@@ -17,9 +17,12 @@ Or:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import sys
+
+from langchain_core.tools import tool
 
 # Ensure src/ is on the path when run standalone
 _src_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -30,6 +33,67 @@ from agents.base_specialist import BaseSpecialist
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Demo / mock browser reproduction tool
+# ---------------------------------------------------------------------------
+
+@tool
+def simulate_browser_reproduction(url: str, steps: str, check_console: bool = True) -> str:
+    """Simulate browser-based issue reproduction for demo purposes.
+
+    Args:
+        url: The page URL to navigate to
+        steps: JSON array of reproduction steps (e.g. '["Click Export to CSV", "Observe spinner"]')
+        check_console: Whether to check browser console for errors (default: True)
+    """
+    import json as _json
+    try:
+        step_list = _json.loads(steps) if isinstance(steps, str) else steps
+    except (ValueError, TypeError):
+        step_list = [steps] if isinstance(steps, str) else ["Unknown steps"]
+
+    # Generate realistic mock reproduction data based on the steps
+    observations = [f"Navigated to {url}"]
+    console_errors = []
+    reproduced = False
+
+    for step in step_list:
+        step_lower = step.lower()
+        observations.append(f"Executed: {step}")
+
+        if any(kw in step_lower for kw in ["export", "csv", "download"]):
+            observations.append("Spinner appeared on the button")
+            observations.append("Spinner continued indefinitely — export never completed")
+            reproduced = True
+        elif any(kw in step_lower for kw in ["click", "press", "tap"]):
+            observations.append("Element responded to interaction")
+        elif any(kw in step_lower for kw in ["wait", "observe"]):
+            observations.append("Waited 5 seconds — no change in page state")
+
+    if check_console and reproduced:
+        console_errors = [
+            "TimeoutError: Export query exceeded 30s limit",
+            "[ExportService] Export failed: query timeout on datasets with >500 rows",
+        ]
+
+    screenshot_desc = (
+        "Dashboard page with export button showing infinite spinner"
+        if reproduced
+        else f"Page at {url} in normal state"
+    )
+
+    return _json.dumps({
+        "reproduced": reproduced,
+        "observations": observations,
+        "console_errors": console_errors,
+        "screenshot_description": screenshot_desc,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Browser specialist
+# ---------------------------------------------------------------------------
 
 class BrowserSpecialist(BaseSpecialist):
     """
@@ -67,29 +131,25 @@ class BrowserSpecialist(BaseSpecialist):
         return (5, 10)
 
     @property
-    def cli_timeout(self) -> int:
-        """Browser operations need more time."""
-        return 120000
-
-    @property
-    def allowed_tools(self) -> list[str]:
-        """Browser agent needs Bash and ToolSearch to load MCP tools."""
-        return ["Bash", "ToolSearch"]
+    def additional_tools(self) -> list:
+        """Provide the mock browser reproduction tool to the LangGraph adapter."""
+        return [simulate_browser_reproduction]
 
     def build_custom_section(self) -> str:
         """
-        Build a fully custom prompt for browser-based issue reproduction.
+        Build the custom_section prompt for browser-based issue reproduction.
 
-        Overrides the base class entirely to provide MCP tool loading
-        and browser automation instructions.
+        Instructs the agent to use the simulate_browser_reproduction tool and
+        then respond via thenvoi_send_message with orchestrator/v1 protocol.
         """
+        min_delay, max_delay = self.delay_range
         return f"""You are {self.agent_name}, a specialist agent for {self.domain} operations.
 
 ## Role
 
 You operate in a dedicated Thenvoi chat room with the SupportOrchestrator agent. Your sole job is to
-receive task_request messages from @SupportOrchestrator, reproduce reported issues in a browser using
-Claude-in-Chrome MCP tools, and respond with detailed reproduction results.
+receive task_request messages from @SupportOrchestrator, reproduce reported issues using the
+`simulate_browser_reproduction` tool, and respond with detailed reproduction results.
 
 ## Supported Intents
 
@@ -101,106 +161,63 @@ When you receive a message from @SupportOrchestrator containing a JSON task_requ
 
 1. **Parse** the task_request JSON to extract `task_id`, `intent`, `params`, and `dispatched_at`.
 2. **Validate** the intent is one you support. If not, respond with a task_result with status "error".
-3. **Load browser tools** using ToolSearch (see below).
-4. **Execute** the reproduction steps using the loaded MCP tools.
-5. **Check console** for errors if requested.
-6. **Format** the results and respond with a task_result JSON.
+3. **Call the `simulate_browser_reproduction` tool** with the params from the request:
+   - `url`: the page URL from params
+   - `steps`: a JSON-encoded array of the reproduction steps from params
+   - `check_console`: whether to check console errors (default true)
+4. **Parse the tool result** (JSON string) to get the reproduction data.
+5. **Respond** with a task_result JSON via `thenvoi_send_message`.
 
-## How to Use Browser Tools
+## How to Use the Reproduction Tool
 
-**IMPORTANT**: Before using any browser tool, you must first load them via ToolSearch.
+Call `simulate_browser_reproduction` with the parameters extracted from the task_request:
 
-### Step 1: Load the required MCP tools
-Use ToolSearch to load the claude-in-chrome tools:
+    simulate_browser_reproduction(
+        url="https://app.example.com/dashboard",
+        steps='["Click Export to CSV button", "Observe spinner behavior"]',
+        check_console=True
+    )
 
-```
-ToolSearch query: "+claude-in-chrome navigate"
-```
+The tool returns a JSON string with:
+- `reproduced` (bool): Whether the issue was reproduced
+- `observations` (list[str]): What was observed at each step
+- `console_errors` (list[str]): Any console errors found
+- `screenshot_description` (str): Description of the final page state
 
-This loads the navigation tool. Then load interaction and console tools:
-
-```
-ToolSearch query: "+claude-in-chrome computer"
-ToolSearch query: "+claude-in-chrome read_console"
-ToolSearch query: "+claude-in-chrome read_page"
-```
-
-### Step 2: Get current tab context
-Call `mcp__claude-in-chrome__tabs_context_mcp` to see available tabs.
-
-### Step 3: Navigate to the target URL
-Call `mcp__claude-in-chrome__navigate` with the URL from params.
-
-### Step 4: Follow reproduction steps
-For each step in the `steps` param:
-- Use `mcp__claude-in-chrome__computer` for click/type actions
-- Use `mcp__claude-in-chrome__read_page` to observe the page state
-- Note what you observe at each step
-
-### Step 5: Check console for errors
-If `check_console` is true (default):
-Call `mcp__claude-in-chrome__read_console_messages` to read any error messages.
-
-### Result Schema
-
-```json
-{{
-    "reproduced": true,
-    "observations": [
-        "Navigated to dashboard page successfully",
-        "Clicked 'Export to CSV' button",
-        "Spinner appeared on the button",
-        "Spinner continued indefinitely — export never completed"
-    ],
-    "console_errors": [
-        "TimeoutError: Export query exceeded 30s limit",
-        "[ExportService] Export failed: query timeout on datasets with >500 rows"
-    ],
-    "screenshot_description": "Dashboard page with export button showing infinite spinner"
-}}
-```
-
-If reproduction fails or the page is unreachable:
-```json
-{{
-    "reproduced": false,
-    "observations": ["Could not load the page — connection refused"],
-    "console_errors": [],
-    "screenshot_description": "Browser showing connection error"
-}}
-```
+Use the returned data as the `result` field in your task_result response.
 
 ## Response Format
 
-Always respond with a single JSON action that sends a message mentioning @SupportOrchestrator with the
-task_result JSON payload:
+After calling `simulate_browser_reproduction`, use the `thenvoi_send_message` tool to send the
+task_result back to the orchestrator:
 
-```json
-{{"action": "send_message", "content": "@SupportOrchestrator {{\\"protocol\\":\\"orchestrator/v1\\",\\"type\\":\\"task_result\\",\\"task_id\\":\\"<from request>\\",\\"status\\":\\"success\\",\\"result\\":{{<reproduction data>}},\\"started_at\\":\\"<ISO 8601>\\",\\"completed_at\\":\\"<ISO 8601>\\",\\"processing_ms\\":<elapsed ms>}}", "mentions": [{{"name": "SupportOrchestrator"}}]}}
-```
+    thenvoi_send_message(
+        content='{{"protocol":"orchestrator/v1","type":"task_result","task_id":"<from request>","status":"success","result":{{<reproduction data from tool>}},"started_at":"<ISO 8601>","completed_at":"<ISO 8601>","processing_ms":<elapsed ms>}}',
+        mentions=['SupportOrchestrator']
+    )
 
 For errors:
 
-```json
-{{"action": "send_message", "content": "@SupportOrchestrator {{\\"protocol\\":\\"orchestrator/v1\\",\\"type\\":\\"task_result\\",\\"task_id\\":\\"<from request>\\",\\"status\\":\\"error\\",\\"error\\":{{\\"code\\":\\"<ERROR_CODE>\\",\\"message\\":\\"<description>\\"}},\\"started_at\\":\\"<ISO 8601>\\",\\"completed_at\\":\\"<ISO 8601>\\",\\"processing_ms\\":<elapsed ms>}}", "mentions": [{{"name": "SupportOrchestrator"}}]}}
-```
+    thenvoi_send_message(
+        content='{{"protocol":"orchestrator/v1","type":"task_result","task_id":"<from request>","status":"error","error":{{"code":"<ERROR_CODE>","message":"<description>"}},"started_at":"<ISO 8601>","completed_at":"<ISO 8601>","processing_ms":<elapsed ms>}}',
+        mentions=['SupportOrchestrator']
+    )
 
 ## Timing
 
 - `started_at`: The ISO 8601 timestamp when you begin processing (use current time).
-- `completed_at`: The ISO 8601 timestamp after the browser interaction completes.
-- `processing_ms`: The actual difference in milliseconds between started_at and completed_at.
+- `completed_at`: The ISO 8601 timestamp when processing completes. This should be
+  {min_delay}-{max_delay} seconds after started_at to simulate realistic browser work.
+- `processing_ms`: The difference in milliseconds between started_at and completed_at.
 
 ## Rules
 
 1. **Only respond to messages from @SupportOrchestrator** containing task_request JSON. Ignore everything else.
-2. **Always use the JSON action format** to send your response (never plain text).
+2. **Always use the `thenvoi_send_message` tool** to send your response (never plain text).
 3. **Always include timing data** (started_at, completed_at, processing_ms).
-4. **Always load MCP tools via ToolSearch** before attempting to use them.
-5. **Do not trigger JavaScript alerts or confirm dialogs** — they block the extension.
-6. **If browser tools are unavailable or fail**, return a task_result with status "error".
-7. **Do not respond to your own messages** to avoid loops.
-8. **Be thorough**: check the console even if the visible behavior seems normal."""
+4. **Always call `simulate_browser_reproduction`** to get reproduction data before responding.
+5. **Do not respond to your own messages** to avoid loops.
+6. **Be thorough**: pass check_console=True even if the visible behavior seems normal."""
 
 
 async def main() -> None:

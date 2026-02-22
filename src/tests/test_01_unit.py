@@ -239,6 +239,23 @@ class TestBuildOrchestratorPrompt:
 
         assert "http://localhost:8888/mock_app.html" in prompt
 
+    def test_prompt_contains_cross_room_tool_names(self):
+        """Prompt references the cross-room tool names for LangGraph."""
+        from orchestrator.orchestrator import SupportRoomConfig, build_orchestrator_prompt
+
+        config = SupportRoomConfig(
+            user_room_id="u", excel_room_id="e",
+            github_room_id="g", browser_room_id="b", linear_room_id="l",
+        )
+
+        prompt = build_orchestrator_prompt(config)
+
+        assert "send_to_user_room" in prompt
+        assert "send_to_excel_room" in prompt
+        assert "send_to_github_room" in prompt
+        assert "send_to_browser_room" in prompt
+        assert "send_to_linear_room" in prompt
+
 
 # ---------------------------------------------------------------------------
 # BaseSpecialist tests
@@ -300,7 +317,7 @@ class TestBaseSpecialist:
         assert "7" in prompt
 
     def test_build_custom_section_includes_protocol(self):
-        """Custom section references the orchestrator/v1 protocol."""
+        """Custom section references the orchestrator/v1 protocol and thenvoi_send_message."""
         from agents.base_specialist import BaseSpecialist
 
         class TestSpecialist(BaseSpecialist):
@@ -315,9 +332,10 @@ class TestBaseSpecialist:
         assert "orchestrator/v1" in prompt
         assert "task_request" in prompt
         assert "task_result" in prompt
+        assert "thenvoi_send_message" in prompt
 
-    def test_default_cli_timeout(self):
-        """Default CLI timeout is 60000ms."""
+    def test_default_additional_tools(self):
+        """Default additional_tools returns an empty list."""
         from agents.base_specialist import BaseSpecialist
 
         class TestSpecialist(BaseSpecialist):
@@ -327,20 +345,7 @@ class TestBaseSpecialist:
             delay_range = (1, 2)
 
         specialist = TestSpecialist()
-        assert specialist.cli_timeout == 60000
-
-    def test_default_allowed_tools(self):
-        """Default allowed tools includes Bash."""
-        from agents.base_specialist import BaseSpecialist
-
-        class TestSpecialist(BaseSpecialist):
-            agent_name = "TestBot"
-            domain = "testing"
-            supported_intents = {"do_test": "Run a test"}
-            delay_range = (1, 2)
-
-        specialist = TestSpecialist()
-        assert specialist.allowed_tools == ["Bash"]
+        assert specialist.additional_tools == []
 
 
 # ---------------------------------------------------------------------------
@@ -351,7 +356,7 @@ class TestSpecialistConfigurations:
     """Test that each specialist agent is configured correctly."""
 
     def test_excel_agent_config(self):
-        """ExcelAgent has correct name, domain, intents, and delay."""
+        """ExcelAgent has correct name, domain, intents, delay, and additional tools."""
         from agents.excel.agent import ExcelSpecialist
 
         agent = ExcelSpecialist()
@@ -360,9 +365,13 @@ class TestSpecialistConfigurations:
         assert "lookup_customer" in agent.supported_intents
         assert agent.delay_range[0] >= 1
         assert agent.delay_range[1] <= 5
+        assert len(agent.additional_tools) == 2
+        tool_names = [t.name for t in agent.additional_tools]
+        assert "lookup_customer" in tool_names
+        assert "search_customers" in tool_names
 
     def test_github_agent_config(self):
-        """GitHubSupportAgent has correct name, domain, intents, and delay."""
+        """GitHubSupportAgent has correct name, domain, intents, delay, and additional tools."""
         from agents.github.agent import GitHubSupportSpecialist as GitHubSpecialist
 
         agent = GitHubSpecialist()
@@ -370,22 +379,31 @@ class TestSpecialistConfigurations:
         assert "github" in agent.domain.lower() or "bug" in agent.domain.lower()
         assert "search_bug_reports" in agent.supported_intents
         assert agent.delay_range[0] >= 1
+        assert len(agent.additional_tools) == 1
+        tool_names = [t.name for t in agent.additional_tools]
+        assert "search_github_issues" in tool_names
 
     def test_browser_agent_config(self):
-        """BrowserAgent has correct name, domain, intents, and delay."""
+        """BrowserAgent has correct name, domain, intents, delay, and additional tools."""
         from agents.browser.agent import BrowserSpecialist
 
         agent = BrowserSpecialist()
         assert agent.agent_name == "BrowserAgent"
         assert "browser" in agent.domain.lower() or "reproduc" in agent.domain.lower()
         assert "reproduce_issue" in agent.supported_intents
-        assert agent.cli_timeout >= 60000  # Browser needs extra time
+        assert len(agent.additional_tools) == 1
+        tool_names = [t.name for t in agent.additional_tools]
+        assert "simulate_browser_reproduction" in tool_names
 
     def test_linear_agent_config(self):
-        """LinearAgent has correct name, domain, intents, and delay."""
+        """LinearAgent has correct name, domain, intents, delay, and additional tools."""
         from agents.linear.agent import LinearSpecialist
 
         agent = LinearSpecialist()
         assert agent.agent_name == "LinearAgent"
         assert "linear" in agent.domain.lower() or "ticket" in agent.domain.lower()
         assert "create_bug_report" in agent.supported_intents
+        assert len(agent.additional_tools) == 2
+        tool_names = [t.name for t in agent.additional_tools]
+        assert "create_linear_issue" in tool_names
+        assert "search_linear_issues" in tool_names

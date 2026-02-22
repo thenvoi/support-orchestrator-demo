@@ -11,8 +11,13 @@ authors = [{ name = "Thenvoi" }]
 license = { text = "MIT" }
 
 dependencies = [
-    # Thenvoi SDK with Claude SDK extras
-    "thenvoi-sdk[claude_sdk]",
+    # Thenvoi SDK with LangGraph extras
+    "thenvoi-sdk[langgraph]",
+
+    # LangGraph and LangChain
+    "langgraph>=0.2.0",
+    "langchain-anthropic>=0.3.0",
+    "langchain-core>=0.3.0",
 
     # HTTP client
     "httpx>=0.24.0",

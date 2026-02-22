@@ -3,7 +3,7 @@ Base specialist agent for the support orchestrator demo.
 
 Provides a reusable base that handles:
 - Environment variable loading (THENVOI_AGENT_ID, THENVOI_API_KEY, etc.)
-- ClaudeCodeDesktopAdapter creation with configurable custom_section
+- LangGraphAdapter creation with configurable custom_section
 - Agent.create() wiring with the adapter
 - Standardized specialist prompt template for the orchestrator/v1 protocol
 
@@ -28,8 +28,10 @@ import os
 from abc import ABC, abstractmethod
 
 from dotenv import load_dotenv
+from langchain_anthropic import ChatAnthropic
+from langgraph.checkpoint.memory import InMemorySaver
 from thenvoi import Agent
-from thenvoi.adapters import ClaudeCodeDesktopAdapter
+from thenvoi.adapters import LangGraphAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -76,14 +78,9 @@ class BaseSpecialist(ABC):
         ...
 
     @property
-    def cli_timeout(self) -> int:
-        """CLI timeout in milliseconds. Override to customize (default: 60s)."""
-        return 60000
-
-    @property
-    def allowed_tools(self) -> list[str]:
-        """Tools allowed for the ClaudeCodeDesktopAdapter. Override to customize."""
-        return ["Bash"]
+    def additional_tools(self) -> list:
+        """Additional LangChain tools for the LangGraphAdapter. Override to customize."""
+        return []
 
     def _load_env(self) -> tuple[str, str, str, str]:
         """
@@ -133,7 +130,7 @@ class BaseSpecialist(ABC):
 
     def build_custom_section(self) -> str:
         """
-        Build the custom_section prompt for the ClaudeCodeDesktopAdapter.
+        Build the custom_section prompt for the LangGraphAdapter.
 
         This prompt instructs the specialist on how to:
         - Parse incoming task_request messages from the orchestrator
@@ -164,22 +161,25 @@ When you receive a message from @SupportOrchestrator containing a JSON task_requ
 3. **Simulate processing** by describing what you would do for this intent (you are a demo agent --
    generate realistic mock data). Simulate a delay of {min_delay}-{max_delay} seconds by noting the
    time elapsed in your started_at / completed_at fields.
-4. **Respond** with a task_result JSON using the exact format below.
+4. **Respond** with a task_result JSON using the format below.
 
 ## Response Format
 
-Always respond with a single JSON action that sends a message mentioning @SupportOrchestrator with the
-task_result JSON payload:
+To respond, use the `thenvoi_send_message` tool with the task_result JSON as content and mentions=['SupportOrchestrator'].
 
-```json
-{{"action": "send_message", "content": "@SupportOrchestrator {{\\"protocol\\":\\"orchestrator/v1\\",\\"type\\":\\"task_result\\",\\"task_id\\":\\"<from request>\\",\\"status\\":\\"success\\",\\"result\\":{{<your result data>}},\\"started_at\\":\\"<ISO 8601>\\",\\"completed_at\\":\\"<ISO 8601>\\",\\"processing_ms\\":<elapsed ms>}}", "mentions": [{{"name": "SupportOrchestrator"}}]}}
-```
+For a successful result, call the tool like this:
+
+    thenvoi_send_message(
+        content='{{"protocol":"orchestrator/v1","type":"task_result","task_id":"<from request>","status":"success","result":{{<your result data>}},"started_at":"<ISO 8601>","completed_at":"<ISO 8601>","processing_ms":<elapsed ms>}}',
+        mentions=['SupportOrchestrator']
+    )
 
 For errors:
 
-```json
-{{"action": "send_message", "content": "@SupportOrchestrator {{\\"protocol\\":\\"orchestrator/v1\\",\\"type\\":\\"task_result\\",\\"task_id\\":\\"<from request>\\",\\"status\\":\\"error\\",\\"error\\":{{\\"code\\":\\"<ERROR_CODE>\\",\\"message\\":\\"<description>\\"}},\\"started_at\\":\\"<ISO 8601>\\",\\"completed_at\\":\\"<ISO 8601>\\",\\"processing_ms\\":<elapsed ms>}}", "mentions": [{{"name": "SupportOrchestrator"}}]}}
-```
+    thenvoi_send_message(
+        content='{{"protocol":"orchestrator/v1","type":"task_result","task_id":"<from request>","status":"error","error":{{"code":"<ERROR_CODE>","message":"<description>"}},"started_at":"<ISO 8601>","completed_at":"<ISO 8601>","processing_ms":<elapsed ms>}}',
+        mentions=['SupportOrchestrator']
+    )
 
 ## Timing
 
@@ -191,7 +191,7 @@ For errors:
 ## Rules
 
 1. **Only respond to messages from @SupportOrchestrator** containing task_request JSON. Ignore everything else.
-2. **Always use the JSON action format** to send your response (never plain text).
+2. **Always use the `thenvoi_send_message` tool** to send your response (never plain text).
 3. **Always include timing data** (started_at, completed_at, processing_ms).
 4. **Generate realistic mock data** that is plausible for the intent and params.
 5. **Do not respond to your own messages** to avoid loops."""
@@ -210,10 +210,11 @@ For errors:
 
         custom_section = self.build_custom_section()
 
-        adapter = ClaudeCodeDesktopAdapter(
+        adapter = LangGraphAdapter(
+            llm=ChatAnthropic(model="claude-sonnet-4-5-20250929"),
+            checkpointer=InMemorySaver(),
             custom_section=custom_section,
-            cli_timeout=self.cli_timeout,
-            allowed_tools=self.allowed_tools,
+            additional_tools=self.additional_tools,
         )
 
         agent = Agent.create(
@@ -225,7 +226,7 @@ For errors:
         )
 
         logger.info(
-            f"{self.agent_name} agent created (cli_timeout={self.cli_timeout}ms, "
+            f"{self.agent_name} agent created (adapter=LangGraphAdapter, "
             f"delay_range={self.delay_range}s)"
         )
 

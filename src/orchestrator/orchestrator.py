@@ -13,10 +13,10 @@ The orchestrator:
 2. Kicks off 3 parallel investigations (Excel, GitHub, Browser)
 3. Collects task_result responses from specialists
 4. Synthesizes results into an informed support response
-5. Conditionally invokes LinearAgent (Branch B: new bug → file ticket)
+5. Conditionally invokes LinearAgent (Branch B: new bug -> file ticket)
 
 Uses a custom adapter subclass (OrchestratorAdapter) that extends
-ClaudeCodeDesktopAdapter with cross-room messaging support.
+LangGraphAdapter with cross-room messaging via custom LangChain tools.
 
 Run standalone:
     THENVOI_AGENT_ID=<id> THENVOI_API_KEY=<key> \\
@@ -36,12 +36,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Any
 
 from dotenv import load_dotenv
+from langchain_anthropic import ChatAnthropic
+from langchain_core.tools import StructuredTool
+from langgraph.checkpoint.memory import InMemorySaver
 from thenvoi import Agent
-from thenvoi.adapters import ClaudeCodeDesktopAdapter
-from thenvoi.core.protocols import AgentToolsProtocol
+from thenvoi.adapters import LangGraphAdapter
 from thenvoi.runtime.tools import AgentTools
 
 logger = logging.getLogger(__name__)
@@ -163,123 +164,185 @@ class SupportRoomConfig:
 
 
 # ---------------------------------------------------------------------------
-# Custom adapter with cross-room messaging
+# Custom adapter with cross-room messaging via LangChain tools
 # ---------------------------------------------------------------------------
 
-class OrchestratorAdapter(ClaudeCodeDesktopAdapter):
+class OrchestratorAdapter(LangGraphAdapter):
     """
-    Extended ClaudeCodeDesktopAdapter with cross-room messaging support.
+    Extended LangGraphAdapter with cross-room messaging via custom tools.
 
-    The base adapter's _execute_action always sends to the room that triggered
-    the event (because AgentTools is bound to a room_id). The orchestrator
-    needs to send to specialist rooms from the user-room context, so this
-    subclass intercepts actions that contain a ``room_id`` field and creates a
-    temporary AgentTools bound to the target room for that send.
-
-    All other actions are dispatched through the default path.
+    Creates dynamic LangChain tools for each specialist room that use
+    temporary AgentTools instances to send messages to the correct room.
     """
 
     def __init__(
         self,
         room_config: SupportRoomConfig,
         custom_section: str | None = None,
-        cli_timeout: int = 30000,
-        allowed_tools: list[str] | None = None,
-        verbose: bool = False,
     ):
+        # We use the simple pattern; cross-room tools are injected dynamically
+        # in on_message via self.additional_tools.
         super().__init__(
-            custom_section=custom_section,
-            cli_timeout=cli_timeout,
-            allowed_tools=allowed_tools or [],
-            verbose=verbose,
+            llm=ChatAnthropic(model="claude-sonnet-4-5-20250929"),
+            checkpointer=InMemorySaver(),
+            custom_section=custom_section or "",
         )
         self.room_config = room_config
+        self._cross_room_tools: list = []
 
-    async def _execute_action(
+    async def on_message(
         self,
-        action_data: dict[str, Any],
-        tools: AgentToolsProtocol,
-    ) -> None:
-        """
-        Execute a parsed action, with cross-room routing for send_message.
+        msg,
+        tools,  # AgentToolsProtocol bound to current room
+        history,
+        participants_msg,
+        contacts_msg,
+        *,
+        is_session_bootstrap,
+        room_id,
+    ):
+        """Override to inject cross-room tools before processing."""
+        # Create cross-room tools dynamically (they need the live tools.rest reference)
+        self._cross_room_tools = self._build_cross_room_tools(tools)
 
-        If the action dict contains a ``room_id`` field that differs from the
-        current tool's room, a temporary AgentTools is created to send the
-        message to the correct room.
+        # Temporarily add cross-room tools to additional_tools
+        original_tools = self.additional_tools
+        self.additional_tools = original_tools + self._cross_room_tools
 
-        Args:
-            action_data: Action dict from the LLM (must have 'action' key).
-            tools: Agent tools bound to the current (source) room.
-        """
-        action = action_data.get("action")
-        target_room_id = action_data.get("room_id")
-
-        # Cross-room send_message: create tools bound to target room
-        if (
-            action == "send_message"
-            and target_room_id
-            and isinstance(tools, AgentTools)
-            and target_room_id != tools.room_id
-        ):
-            target_label = self.room_config.room_label(target_room_id)
-            content = action_data.get("content", "")
-            mentions = action_data.get("mentions", [])
-
-            logger.info(
-                f"Cross-room send: {self.room_config.room_label(tools.room_id)} -> "
-                f"{target_label}: {content[:60]}{'...' if len(content) > 60 else ''}"
+        try:
+            await super().on_message(
+                msg, tools, history, participants_msg, contacts_msg,
+                is_session_bootstrap=is_session_bootstrap, room_id=room_id,
             )
+        finally:
+            self.additional_tools = original_tools
 
-            # Create a temporary AgentTools instance bound to the target room.
-            target_tools = AgentTools(
-                room_id=target_room_id,
-                rest=tools.rest,
-                participants=None,
-                agent_id=getattr(tools, '_agent_id', None),
-            )
+    def _build_cross_room_tools(self, tools) -> list:
+        """Build LangChain tools for cross-room messaging."""
+        room_config = self.room_config
 
-            # Load participants for the target room so @mentions resolve
+        async def _send_to_room(
+            room_id: str, room_label: str, content: str, mentions_str: str = "",
+        ) -> str:
+            """Send a message to a specific room via temporary AgentTools."""
             try:
-                target_participants = (
-                    await tools.rest.agent_api_participants.list_agent_chat_participants(
-                        chat_id=target_room_id,
+                target_tools = AgentTools(
+                    room_id=room_id,
+                    rest=tools.rest,
+                    participants=None,
+                    agent_id=getattr(tools, '_agent_id', None),
+                )
+                # Load participants for mention resolution
+                try:
+                    target_participants = (
+                        await tools.rest.agent_api_participants
+                        .list_agent_chat_participants(chat_id=room_id)
                     )
-                )
-                if target_participants.data:
-                    target_tools._participants = [
-                        {
-                            "id": p.id,
-                            "name": p.name,
-                            "handle": getattr(p, "handle", "") or "",
-                            "type": getattr(p, "type", ""),
-                        }
-                        for p in target_participants.data
-                    ]
-            except Exception as e:
-                logger.warning(
-                    f"Failed to load participants for {target_label}: {e}. "
-                    "Mention resolution may fail."
-                )
+                    if target_participants.data:
+                        target_tools._participants = [
+                            {
+                                "id": p.id,
+                                "name": p.name,
+                                "handle": getattr(p, "handle", "") or "",
+                                "type": getattr(p, "type", ""),
+                            }
+                            for p in target_participants.data
+                        ]
+                except Exception:
+                    pass
 
-            try:
+                mentions = (
+                    [m.strip() for m in mentions_str.split(",") if m.strip()]
+                    if mentions_str
+                    else []
+                )
                 await target_tools.send_message(content, mentions)
-                logger.info(
-                    f"Cross-room message sent to {target_label}: "
-                    f"{content[:50]}{'...' if len(content) > 50 else ''}"
-                )
+                return f"Message sent to {room_label}"
             except Exception as e:
-                logger.error(
-                    f"Cross-room send to {target_label} failed: {e}",
-                    exc_info=True,
-                )
-                await tools.send_event(
-                    content=f"Failed to send to {target_label}: {self._sanitize_error(str(e))}",
-                    message_type="error",
-                )
-            return
+                return f"Error sending to {room_label}: {e}"
 
-        # Default: delegate to base class for same-room actions
-        await super()._execute_action(action_data, tools)
+        # --- Per-room tool functions ---
+
+        async def send_to_user_room(content: str) -> str:
+            """Send a message to the user support room (customer-facing)."""
+            return await _send_to_room(
+                room_config.user_room_id, "user-room", content, "",
+            )
+
+        async def send_to_excel_room(
+            content: str, mentions: str = "ExcelAgent",
+        ) -> str:
+            """Send a task_request to the Excel specialist room. Include @ExcelAgent mention."""
+            return await _send_to_room(
+                room_config.excel_room_id, "excel-room", content, mentions,
+            )
+
+        async def send_to_github_room(
+            content: str, mentions: str = "GitHubSupportAgent",
+        ) -> str:
+            """Send a task_request to the GitHub specialist room. Include @GitHubSupportAgent mention."""
+            return await _send_to_room(
+                room_config.github_room_id, "github-room", content, mentions,
+            )
+
+        async def send_to_browser_room(
+            content: str, mentions: str = "BrowserAgent",
+        ) -> str:
+            """Send a task_request to the Browser specialist room. Include @BrowserAgent mention."""
+            return await _send_to_room(
+                room_config.browser_room_id, "browser-room", content, mentions,
+            )
+
+        async def send_to_linear_room(
+            content: str, mentions: str = "LinearAgent",
+        ) -> str:
+            """Send a task_request to the Linear specialist room. Include @LinearAgent mention."""
+            return await _send_to_room(
+                room_config.linear_room_id, "linear-room", content, mentions,
+            )
+
+        return [
+            StructuredTool.from_function(
+                coroutine=send_to_user_room,
+                name="send_to_user_room",
+                description=(
+                    "Send a message to the customer in the user support room. "
+                    "Use for acknowledgments and final responses."
+                ),
+            ),
+            StructuredTool.from_function(
+                coroutine=send_to_excel_room,
+                name="send_to_excel_room",
+                description=(
+                    "Send a task_request to ExcelAgent in the Excel room "
+                    "for customer data lookup."
+                ),
+            ),
+            StructuredTool.from_function(
+                coroutine=send_to_github_room,
+                name="send_to_github_room",
+                description=(
+                    "Send a task_request to GitHubSupportAgent in the GitHub room "
+                    "for bug search."
+                ),
+            ),
+            StructuredTool.from_function(
+                coroutine=send_to_browser_room,
+                name="send_to_browser_room",
+                description=(
+                    "Send a task_request to BrowserAgent in the Browser room "
+                    "for issue reproduction."
+                ),
+            ),
+            StructuredTool.from_function(
+                coroutine=send_to_linear_room,
+                name="send_to_linear_room",
+                description=(
+                    "Send a task_request to LinearAgent in the Linear room "
+                    "for filing bug tickets."
+                ),
+            ),
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -316,6 +379,18 @@ You sit in 5 Thenvoi chat rooms simultaneously:
 Your primary job: receive a customer's bug report, kick off parallel investigations, synthesize the
 results, and deliver a smart, informed response.
 
+## Cross-Room Tools
+
+You have dedicated tools for sending messages to each room:
+
+- `send_to_user_room(content)` — Send a message to the customer (no mentions needed).
+- `send_to_excel_room(content, mentions)` — Send to ExcelAgent (default mention: "ExcelAgent").
+- `send_to_github_room(content, mentions)` — Send to GitHubSupportAgent (default mention: "GitHubSupportAgent").
+- `send_to_browser_room(content, mentions)` — Send to BrowserAgent (default mention: "BrowserAgent").
+- `send_to_linear_room(content, mentions)` — Send to LinearAgent (default mention: "LinearAgent").
+
+Use these tools for ALL cross-room communication. The tools handle room routing and mention resolution automatically.
+
 ## Determining Message Source
 
 Every incoming message includes a `[room_id: ...]` prefix. Use this to determine which room:
@@ -330,8 +405,8 @@ Every incoming message includes a `[room_id: ...]` prefix. Use this to determine
 
 When a customer message arrives from the user room:
 
-1. **FIRST action**: Send an immediate acknowledgment to the user room.
-2. **NEXT 3 actions**: Send parallel task_requests to Excel, GitHub, and Browser rooms.
+1. **FIRST**: Call `send_to_user_room` with an immediate acknowledgment.
+2. **NEXT**: Call `send_to_excel_room`, `send_to_github_room`, and `send_to_browser_room` with parallel task_requests.
 
 The customer message typically includes:
 - A description of the problem (e.g., "The export button is broken")
@@ -339,13 +414,14 @@ The customer message typically includes:
 
 Extract the email and problem description, then dispatch:
 
-```json
-[
-  {{"action": "send_message", "content": "Thanks for reaching out! I'm looking into this right now — checking your account, searching our bug tracker, and trying to reproduce the issue. I'll have an update for you shortly.", "room_id": "{room_config.user_room_id}"}},
-  {{"action": "send_message", "content": "@ExcelAgent {{\"protocol\":\"orchestrator/v1\",\"type\":\"task_request\",\"task_id\":\"task-001\",\"intent\":\"lookup_customer\",\"params\":{{\"email\":\"<customer_email>\"}},\"user_request\":\"<original message>\",\"dispatched_at\":\"<ISO 8601>\"}}", "mentions": [{{"name": "ExcelAgent"}}], "room_id": "{room_config.excel_room_id}"}},
-  {{"action": "send_message", "content": "@GitHubSupportAgent {{\"protocol\":\"orchestrator/v1\",\"type\":\"task_request\",\"task_id\":\"task-002\",\"intent\":\"search_bug_reports\",\"params\":{{\"repo\":\"roi-shikler-thenvoi/demo-product\",\"keywords\":\"<extracted keywords from bug report>\",\"labels\":[\"bug\"]}},\"user_request\":\"<original message>\",\"dispatched_at\":\"<ISO 8601>\"}}", "mentions": [{{"name": "GitHubSupportAgent"}}], "room_id": "{room_config.github_room_id}"}},
-  {{"action": "send_message", "content": "@BrowserAgent {{\"protocol\":\"orchestrator/v1\",\"type\":\"task_request\",\"task_id\":\"task-003\",\"intent\":\"reproduce_issue\",\"params\":{{\"url\":\"http://localhost:8888/mock_app.html\",\"steps\":[\"Click the Export to CSV button\",\"Observe the spinner behavior\",\"Wait 5 seconds to see if export completes\"],\"check_console\":true}},\"user_request\":\"<original message>\",\"dispatched_at\":\"<ISO 8601>\"}}", "mentions": [{{"name": "BrowserAgent"}}], "room_id": "{room_config.browser_room_id}"}}
-]
+```
+Call send_to_user_room(content="Thanks for reaching out! I'm looking into this right now — checking your account, searching our bug tracker, and trying to reproduce the issue. I'll have an update for you shortly.")
+
+Call send_to_excel_room(content="@ExcelAgent {{\\"protocol\\":\\"orchestrator/v1\\",\\"type\\":\\"task_request\\",\\"task_id\\":\\"task-001\\",\\"intent\\":\\"lookup_customer\\",\\"params\\":{{\\"email\\":\\"<customer_email>\\"}},\\"user_request\\":\\"<original message>\\",\\"dispatched_at\\":\\"<ISO 8601>\\"}}")
+
+Call send_to_github_room(content="@GitHubSupportAgent {{\\"protocol\\":\\"orchestrator/v1\\",\\"type\\":\\"task_request\\",\\"task_id\\":\\"task-002\\",\\"intent\\":\\"search_bug_reports\\",\\"params\\":{{\\"repo\\":\\"roi-shikler-thenvoi/demo-product\\",\\"keywords\\":\\"<extracted keywords from bug report>\\",\\"labels\\":[\\"bug\\"]}},\\"user_request\\":\\"<original message>\\",\\"dispatched_at\\":\\"<ISO 8601>\\"}}")
+
+Call send_to_browser_room(content="@BrowserAgent {{\\"protocol\\":\\"orchestrator/v1\\",\\"type\\":\\"task_request\\",\\"task_id\\":\\"task-003\\",\\"intent\\":\\"reproduce_issue\\",\\"params\\":{{\\"url\\":\\"http://localhost:8888/mock_app.html\\",\\"steps\\":[\\"Click the Export to CSV button\\",\\"Observe the spinner behavior\\",\\"Wait 5 seconds to see if export completes\\"],\\"check_console\\":true}},\\"user_request\\":\\"<original message>\\",\\"dispatched_at\\":\\"<ISO 8601>\\"}}")
 ```
 
 ## Phase 2: Collect Specialist Results
@@ -358,10 +434,8 @@ initial specialists before synthesizing. Track what you have received:
 - Browser result: reproduction observations and console errors
 
 When forwarding individual results, you can send brief status updates to the user:
-```json
-[
-  {{"action": "send_message", "content": "Found your account details — checking the other investigations...", "room_id": "{room_config.user_room_id}"}}
-]
+```
+Call send_to_user_room(content="Found your account details — checking the other investigations...")
 ```
 
 ## Phase 3: Synthesize and Respond
@@ -377,14 +451,7 @@ Once you have all 3 results, determine which branch applies:
 
 **Response pattern:**
 ```
-"Hi [Name], thanks for reporting this. I looked into it and here's what I found:
-
-This is a known issue (#[number]) that affects [description of the bug]. Our engineering team has
-already identified the root cause and [fix status from engineer notes].
-
-[If workaround available:] In the meantime, a workaround: [workaround details].
-
-I'll follow up once the fix is live. Sorry for the inconvenience!"
+Call send_to_user_room(content="Hi [Name], thanks for reporting this. I looked into it and here's what I found:\\n\\nThis is a known issue (#[number]) that affects [description of the bug]. Our engineering team has already identified the root cause and [fix status from engineer notes].\\n\\n[If workaround available:] In the meantime, a workaround: [workaround details].\\n\\nI'll follow up once the fix is live. Sorry for the inconvenience!")
 ```
 
 ### Branch B — New Bug (no GitHub match)
@@ -395,16 +462,13 @@ I'll follow up once the fix is live. Sorry for the inconvenience!"
 - Browser reproduced the issue (or showed errors)
 
 **Action:** Delegate to LinearAgent to file a new bug ticket:
-```json
-[
-  {{"action": "send_message", "content": "@LinearAgent {{\"protocol\":\"orchestrator/v1\",\"type\":\"task_request\",\"task_id\":\"task-004\",\"intent\":\"create_bug_report\",\"params\":{{\"title\":\"<concise bug title>\",\"description\":\"<detailed description with customer context, account ID, reproduction results, console errors>\",\"priority\":2,\"labels\":[\"bug\",\"customer-reported\"]}},\"user_request\":\"<original message>\",\"dispatched_at\":\"<ISO 8601>\"}}", "mentions": [{{"name": "LinearAgent"}}], "room_id": "{room_config.linear_room_id}"}}
-]
+```
+Call send_to_linear_room(content="@LinearAgent {{\\"protocol\\":\\"orchestrator/v1\\",\\"type\\":\\"task_request\\",\\"task_id\\":\\"task-004\\",\\"intent\\":\\"create_bug_report\\",\\"params\\":{{\\"title\\":\\"<concise bug title>\\",\\"description\\":\\"<detailed description with customer context, account ID, reproduction results, console errors>\\",\\"priority\\":2,\\"labels\\":[\\"bug\\",\\"customer-reported\\"]}},\\"user_request\\":\\"<original message>\\",\\"dispatched_at\\":\\"<ISO 8601>\\"}}")
 ```
 
 Then wait for the LinearAgent result, and respond to the user:
 ```
-"I wasn't able to find a known issue for this, so I've filed a bug report with our engineering team
-([ticket identifier]). They'll investigate. I'll keep you updated."
+Call send_to_user_room(content="I wasn't able to find a known issue for this, so I've filed a bug report with our engineering team ([ticket identifier]). They'll investigate. I'll keep you updated.")
 ```
 
 ### Branch C — Plan Limitation
@@ -415,8 +479,7 @@ Then wait for the LinearAgent result, and respond to the user:
 
 **Response pattern:**
 ```
-"I checked your account and it looks like [feature] is available on our [required plan] plan.
-You're currently on the [current plan] tier. Would you like me to send you details about upgrading?"
+Call send_to_user_room(content="I checked your account and it looks like [feature] is available on our [required plan] plan. You're currently on the [current plan] tier. Would you like me to send you details about upgrading?")
 ```
 
 ## Task Request Protocol (orchestrator/v1)
@@ -463,17 +526,16 @@ Include timestamps in every interaction:
 ## Critical Rules
 
 1. **Always acknowledge FIRST** when receiving a customer message. The customer should see a response within 1 second.
-2. **Use JSON action arrays** for every response. Never respond with plain text.
-3. **Include `room_id`** in every `send_message` action to enable cross-room routing.
-4. **Do not respond to your own messages** to avoid infinite loops.
-5. **Generate unique task_ids** for every task_request.
-6. **Always include `mentions`** when sending to specialist rooms.
-7. **Do not include mentions** when sending to the user room (the customer sees plain text).
-8. **When responding to the customer**, write in natural, empathetic language. Do NOT dump raw JSON.
-9. **Wait for all 3 initial results** before synthesizing a final response (unless one errors out).
-10. **Only invoke LinearAgent** in Branch B (new bug, no GitHub match). Do not invoke it preemptively.
-11. **Use the `repo` parameter** "roi-shikler-thenvoi/demo-product" for GitHub searches (this is the demo product repo).
-12. **Use the URL** "http://localhost:8888/mock_app.html" for browser reproduction (demo app served locally)."""
+2. **Use the provided room tools** (`send_to_user_room`, `send_to_excel_room`, etc.) for every message. Never respond with plain text.
+3. **Always include mentions** when sending to specialist rooms (the tools handle this via the `mentions` parameter with sensible defaults).
+4. **Do not include mentions** when sending to the user room (the `send_to_user_room` tool has no mentions parameter).
+5. **Do not respond to your own messages** to avoid infinite loops.
+6. **Generate unique task_ids** for every task_request.
+7. **When responding to the customer**, write in natural, empathetic language. Do NOT dump raw JSON.
+8. **Wait for all 3 initial results** before synthesizing a final response (unless one errors out).
+9. **Only invoke LinearAgent** in Branch B (new bug, no GitHub match). Do not invoke it preemptively.
+10. **Use the `repo` parameter** "roi-shikler-thenvoi/demo-product" for GitHub searches (this is the demo product repo).
+11. **Use the URL** "http://localhost:8888/mock_app.html" for browser reproduction (demo app served locally)."""
 
 
 # ---------------------------------------------------------------------------
@@ -486,8 +548,6 @@ def create_orchestrator(
     ws_url: str,
     rest_url: str,
     room_config: SupportRoomConfig,
-    cli_timeout: int = 30000,
-    verbose: bool = False,
 ) -> Agent:
     """
     Create a configured Support Orchestrator Agent instance.
@@ -498,8 +558,6 @@ def create_orchestrator(
         ws_url: WebSocket URL for the Thenvoi platform.
         rest_url: REST API URL for the Thenvoi platform.
         room_config: Room configuration with all 5 room IDs.
-        cli_timeout: CLI timeout in milliseconds (default: 30s).
-        verbose: Pass --verbose to Claude Code CLI.
 
     Returns:
         A ready-to-run Agent instance.
@@ -509,9 +567,6 @@ def create_orchestrator(
     adapter = OrchestratorAdapter(
         room_config=room_config,
         custom_section=custom_section,
-        cli_timeout=cli_timeout,
-        allowed_tools=[],  # No filesystem tools needed
-        verbose=verbose,
     )
 
     agent = Agent.create(
@@ -523,7 +578,7 @@ def create_orchestrator(
     )
 
     logger.info(
-        f"SupportOrchestrator agent created (cli_timeout={cli_timeout}ms, "
+        f"SupportOrchestrator agent created (adapter=LangGraphAdapter, "
         f"user_room={room_config.user_room_id}, "
         f"excel_room={room_config.excel_room_id}, "
         f"github_room={room_config.github_room_id}, "

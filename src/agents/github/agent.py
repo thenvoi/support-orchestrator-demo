@@ -17,9 +17,13 @@ Or:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+import subprocess
 import sys
+
+from langchain_core.tools import tool
 
 # Ensure src/ is on the path when run standalone
 _src_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -30,6 +34,85 @@ from agents.base_specialist import BaseSpecialist
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Custom LangChain tool – real GitHub issue search via `gh` CLI
+# ---------------------------------------------------------------------------
+
+@tool
+def search_github_issues(repo: str, keywords: str, labels: str = "bug", limit: int = 5) -> str:
+    """Search open GitHub issues for known bugs matching a customer's report.
+
+    Args:
+        repo: GitHub repo in owner/repo format
+        keywords: Search terms from the customer's bug report
+        labels: Comma-separated labels to filter by (default: "bug")
+        limit: Max number of results (default: 5)
+    """
+    try:
+        # Step 1: Search for matching issues
+        cmd = [
+            "gh", "search", "issues", f"{keywords} repo:{repo}",
+            "--state=open", f"--limit={limit}",
+            "--json", "number,title,state,author,labels,createdAt,body",
+        ]
+        if labels:
+            for label in labels.split(","):
+                cmd.extend(["--label", label.strip()])
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            return json.dumps({"matches": [], "error": result.stderr})
+
+        issues = json.loads(result.stdout) if result.stdout.strip() else []
+
+        # Step 2: For each match, get full details including comments
+        enriched = []
+        for issue in issues[:3]:  # Limit detailed lookups
+            detail_cmd = [
+                "gh", "issue", "view", str(issue["number"]),
+                "--repo", repo,
+                "--json", "number,title,body,state,author,labels,comments,createdAt,updatedAt",
+            ]
+            detail_result = subprocess.run(detail_cmd, capture_output=True, text=True, timeout=30)
+            if detail_result.returncode == 0:
+                detail = json.loads(detail_result.stdout)
+                engineer_notes = []
+                for comment in detail.get("comments", []):
+                    body = comment.get("body", "")
+                    if any(kw in body.lower() for kw in ["root cause", "fix", "pr", "deploy", "workaround"]):
+                        engineer_notes.append(body[:200])
+                enriched.append({
+                    "number": detail["number"],
+                    "title": detail["title"],
+                    "state": detail["state"],
+                    "author": detail.get("author", {}).get("login", "unknown"),
+                    "labels": [l["name"] for l in detail.get("labels", [])],
+                    "created_at": detail.get("createdAt", ""),
+                    "body_preview": detail.get("body", "")[:500],
+                    "comments_count": len(detail.get("comments", [])),
+                    "engineer_notes": engineer_notes,
+                })
+            else:
+                enriched.append({
+                    "number": issue["number"],
+                    "title": issue["title"],
+                    "state": issue.get("state", "open"),
+                    "author": issue.get("author", {}).get("login", "unknown"),
+                    "labels": [l["name"] for l in issue.get("labels", [])],
+                    "created_at": issue.get("createdAt", ""),
+                    "body_preview": issue.get("body", "")[:500],
+                    "comments_count": 0,
+                    "engineer_notes": [],
+                })
+
+        return json.dumps({"matches": enriched, "search_query": f"{keywords} repo:{repo}"})
+    except Exception as e:
+        return json.dumps({"matches": [], "error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Specialist class
+# ---------------------------------------------------------------------------
 
 class GitHubSupportSpecialist(BaseSpecialist):
     """
@@ -66,19 +149,25 @@ class GitHubSupportSpecialist(BaseSpecialist):
     def delay_range(self) -> tuple[int, int]:
         return (2, 5)
 
+    @property
+    def additional_tools(self) -> list:
+        return [search_github_issues]
+
     def build_custom_section(self) -> str:
         """
-        Build a fully custom prompt that uses real GitHub API via `gh` CLI.
+        Build a custom prompt that uses the search_github_issues tool for bug triage.
 
-        Overrides the base class entirely to provide GitHub bug triage instructions.
+        Overrides the base class to provide GitHub-specific instructions using the
+        LangChain tool instead of raw Bash / JSON-action commands.
         """
         return f"""You are {self.agent_name}, a specialist agent for {self.domain} operations.
 
 ## Role
 
 You operate in a dedicated Thenvoi chat room with the SupportOrchestrator agent. Your sole job is to
-receive task_request messages from @SupportOrchestrator, search for known bugs on GitHub using the `gh`
-CLI, and respond with task_result messages containing relevant issue data for customer support triage.
+receive task_request messages from @SupportOrchestrator, search for known bugs on GitHub using the
+`search_github_issues` tool, and respond with task_result messages containing relevant issue data for
+customer support triage.
 
 ## Supported Intents
 
@@ -90,96 +179,54 @@ When you receive a message from @SupportOrchestrator containing a JSON task_requ
 
 1. **Parse** the task_request JSON to extract `task_id`, `intent`, `params`, and `dispatched_at`.
 2. **Validate** the intent is one you support. If not, respond with a task_result with status "error".
-3. **Execute** the appropriate `gh` CLI commands to search for matching issues.
-4. **For each matching issue**, fetch additional details (comments, engineer notes about fixes).
-5. **Format** the results and respond with a task_result JSON.
+3. **Call the `search_github_issues` tool** with the appropriate parameters extracted from the request
+   (repo, keywords, labels, limit).
+4. **Format** the tool output into a task_result JSON payload.
+5. **Send the response** using the `thenvoi_send_message` tool with mentions=['SupportOrchestrator'].
 
 ## How to Search for Bug Reports
 
-Use the `gh` CLI tool via Bash. The environment has `GITHUB_TOKEN` set for authentication.
+Use the `search_github_issues` tool. It accepts:
+- `repo` (str): GitHub repo in owner/repo format
+- `keywords` (str): Search terms from the customer's bug report
+- `labels` (str, optional): Comma-separated labels to filter by (default: "bug")
+- `limit` (int, optional): Max number of results (default: 5)
 
-### search_bug_reports
-
-**Step 1: Search for matching issues**
-```bash
-gh search issues "{{keywords}} repo:{{repo}}" --state=open --limit={{limit}} --json number,title,state,author,labels,createdAt,body
-```
-
-If labels are provided, add `--label` flags:
-```bash
-gh search issues "{{keywords}} repo:{{repo}}" --state=open --label=bug --limit={{limit}} --json number,title,state,author,labels,createdAt,body
-```
-
-**Step 2: For promising matches, get full issue details including comments**
-```bash
-gh issue view {{number}} --repo {{repo}} --json number,title,body,state,author,labels,comments,createdAt,updatedAt
-```
-
-Map the JSON output fields to the result schema:
-- `author.login` -> `author`
-- `labels[].name` -> `labels`
-- `createdAt` -> `created_at`
-- `body` (first 500 chars) -> `body_preview`
-- `len(comments)` -> `comments_count`
-- Extract any comments mentioning "root cause", "fix", "PR", "deploy", or "workaround" and include
-  them as `engineer_notes` (list of strings, each being a relevant comment excerpt).
-
-### Result Schema
-
-For each matching issue, return:
-```json
-{{
-    "number": 412,
-    "title": "CSV export spinner hangs on dashboards with >500 rows",
-    "state": "open",
-    "author": "engineer-username",
-    "labels": ["bug", "priority: high"],
-    "created_at": "2026-02-17T...",
-    "body_preview": "First 500 chars of the issue body...",
-    "comments_count": 5,
-    "engineer_notes": [
-        "Root cause identified — timeout on large datasets. Fix in PR #418, deploying Thursday."
-    ]
-}}
-```
-
-If NO matching issues are found, return:
-```json
-{{
-    "matches": [],
-    "search_query": "the query used",
-    "message": "No matching bug reports found"
-}}
-```
+The tool returns a JSON string with `matches` (list of enriched issue objects) and `search_query`.
+Each match contains: number, title, state, author, labels, created_at, body_preview, comments_count,
+and engineer_notes.
 
 ## Response Format
 
-Always respond with a single JSON action that sends a message mentioning @SupportOrchestrator with the
-task_result JSON payload:
+After calling `search_github_issues`, send the result using `thenvoi_send_message`:
 
-```json
-{{"action": "send_message", "content": "@SupportOrchestrator {{\\"protocol\\":\\"orchestrator/v1\\",\\"type\\":\\"task_result\\",\\"task_id\\":\\"<from request>\\",\\"status\\":\\"success\\",\\"result\\":{{\\"matches\\":[<issue objects>],\\"search_query\\":\\"<query used>\\"}},\\"started_at\\":\\"<ISO 8601>\\",\\"completed_at\\":\\"<ISO 8601>\\",\\"processing_ms\\":<elapsed ms>}}", "mentions": [{{"name": "SupportOrchestrator"}}]}}
-```
+For a successful result:
+
+    thenvoi_send_message(
+        content='{{"protocol":"orchestrator/v1","type":"task_result","task_id":"<from request>","status":"success","result":<tool output JSON>,"started_at":"<ISO 8601>","completed_at":"<ISO 8601>","processing_ms":<elapsed ms>}}',
+        mentions=['SupportOrchestrator']
+    )
 
 For errors:
 
-```json
-{{"action": "send_message", "content": "@SupportOrchestrator {{\\"protocol\\":\\"orchestrator/v1\\",\\"type\\":\\"task_result\\",\\"task_id\\":\\"<from request>\\",\\"status\\":\\"error\\",\\"error\\":{{\\"code\\":\\"<ERROR_CODE>\\",\\"message\\":\\"<description>\\"}},\\"started_at\\":\\"<ISO 8601>\\",\\"completed_at\\":\\"<ISO 8601>\\",\\"processing_ms\\":<elapsed ms>}}", "mentions": [{{"name": "SupportOrchestrator"}}]}}
-```
+    thenvoi_send_message(
+        content='{{"protocol":"orchestrator/v1","type":"task_result","task_id":"<from request>","status":"error","error":{{"code":"<ERROR_CODE>","message":"<description>"}},"started_at":"<ISO 8601>","completed_at":"<ISO 8601>","processing_ms":<elapsed ms>}}',
+        mentions=['SupportOrchestrator']
+    )
 
 ## Timing
 
 - `started_at`: The ISO 8601 timestamp when you begin processing (use current time).
-- `completed_at`: The ISO 8601 timestamp after the `gh` commands complete and you have formatted the result.
+- `completed_at`: The ISO 8601 timestamp after the tool call completes and you have formatted the result.
 - `processing_ms`: The actual difference in milliseconds between started_at and completed_at.
 
 ## Rules
 
 1. **Only respond to messages from @SupportOrchestrator** containing task_request JSON. Ignore everything else.
-2. **Always use the JSON action format** to send your response (never plain text).
+2. **Always use the `thenvoi_send_message` tool** to send your response (never plain text).
 3. **Always include timing data** (started_at, completed_at, processing_ms).
-4. **Always query the real GitHub API** via `gh` CLI. Never fabricate or mock data.
-5. **If a `gh` command fails**, return a task_result with status "error" and include the error message.
+4. **Always query the real GitHub API** via the `search_github_issues` tool. Never fabricate or mock data.
+5. **If the tool returns an error**, return a task_result with status "error" and include the error message.
 6. **Do not respond to your own messages** to avoid loops.
 7. **Focus on bug triage**: prioritize issues that match the customer's reported symptoms."""
 

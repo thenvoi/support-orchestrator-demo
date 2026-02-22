@@ -52,11 +52,10 @@ The repo has 20 issues, 17 labels, and an open PR — giving the agent plenty of
 |---|---|---|
 | Python 3.11+ | All agents | `python3 --version` |
 | [uv](https://docs.astral.sh/uv/) | Package management | `uv --version` |
-| [Thenvoi SDK](https://github.com/thenvoi/thenvoi-sdk-python) | Agent framework | `pip install thenvoi-sdk[claude_sdk]` |
+| [Thenvoi SDK](https://github.com/thenvoi/thenvoi-sdk-python) | Agent framework | `pip install thenvoi-sdk[langgraph]` |
+| [LangGraph](https://github.com/langchain-ai/langgraph) + [langchain-anthropic](https://python.langchain.com/docs/integrations/chat/anthropic/) | LLM agent framework | Installed via `pip install -e ".[dev]"` |
 | Thenvoi User API key (`thnv_u_...`) | Register agents + create rooms | Get from [app.thenvoi.com](https://app.thenvoi.com) settings |
 | [gh CLI](https://cli.github.com/) + GitHub token | GitHubSupportAgent searches issues | `gh auth status` |
-| Chrome + [Claude in Chrome](https://chromewebstore.google.com/detail/claude-in-chrome) MCP | BrowserAgent reproduces bugs | Extension installed + MCP server configured in Claude Code |
-| Linear MCP server | LinearAgent files tickets (Branch B only) | `plugin_linear_linear` MCP configured in Claude Code |
 
 ---
 
@@ -251,13 +250,13 @@ After teardown, you may want to manually remove the auto-generated variables fro
 support-orchestrator-demo/
 ├── src/
 │   ├── agents/
-│   │   ├── base_specialist.py       # Base class for all specialists
-│   │   ├── excel/agent.py           # Customer data lookup (pandas + xlsx)
-│   │   ├── github/agent.py          # Bug triage (gh CLI)
-│   │   ├── browser/agent.py         # Issue reproduction (claude-in-chrome MCP)
-│   │   └── linear/agent.py          # Bug filing (Linear MCP)
+│   │   ├── base_specialist.py       # Base class for all specialists (LangGraph)
+│   │   ├── excel/agent.py           # Customer data lookup (pandas @tool)
+│   │   ├── github/agent.py          # Bug triage (gh CLI @tool)
+│   │   ├── browser/agent.py         # Issue reproduction (mock @tool)
+│   │   └── linear/agent.py          # Bug filing (mock @tool)
 │   ├── orchestrator/
-│   │   └── orchestrator.py          # SupportOrchestrator + OrchestratorAdapter
+│   │   └── orchestrator.py          # SupportOrchestrator + OrchestratorAdapter (LangGraph)
 │   ├── thenvoi_integration/
 │   │   ├── agent_registry.py        # Agent CRUD via Thenvoi API
 │   │   ├── room_manager.py          # Room CRUD via Thenvoi API
