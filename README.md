@@ -53,7 +53,8 @@ The repo has 20 issues, 17 labels, and an open PR — giving the agent plenty of
 | Python 3.11+ | All agents | `python3 --version` |
 | [uv](https://docs.astral.sh/uv/) | Package management | `uv --version` |
 | [Thenvoi SDK](https://github.com/thenvoi/thenvoi-sdk-python) | Agent framework | `pip install thenvoi-sdk[langgraph]` |
-| [LangGraph](https://github.com/langchain-ai/langgraph) + [langchain-anthropic](https://python.langchain.com/docs/integrations/chat/anthropic/) | LLM agent framework | Installed via `pip install -e ".[dev]"` |
+| [LangGraph](https://github.com/langchain-ai/langgraph) + LLM provider | LLM agent framework | Installed via `pip install -e ".[dev]"` |
+| Anthropic API key **or** OpenAI API key | LLM for all agents | Set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in `.env` |
 | Thenvoi User API key (`thnv_u_...`) | Register agents + create rooms | Get from [app.thenvoi.com](https://app.thenvoi.com) settings |
 | [gh CLI](https://cli.github.com/) + GitHub token | GitHubSupportAgent searches issues | `gh auth status` |
 

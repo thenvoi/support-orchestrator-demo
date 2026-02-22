@@ -37,8 +37,8 @@ import asyncio
 import logging
 import os
 
+from agents.base_specialist import create_llm
 from dotenv import load_dotenv
-from langchain_anthropic import ChatAnthropic
 from langchain_core.tools import StructuredTool
 from langgraph.checkpoint.memory import InMemorySaver
 from thenvoi import Agent
@@ -183,7 +183,7 @@ class OrchestratorAdapter(LangGraphAdapter):
         # We use the simple pattern; cross-room tools are injected dynamically
         # in on_message via self.additional_tools.
         super().__init__(
-            llm=ChatAnthropic(model="claude-sonnet-4-5-20250929"),
+            llm=create_llm(),
             checkpointer=InMemorySaver(),
             custom_section=custom_section or "",
         )

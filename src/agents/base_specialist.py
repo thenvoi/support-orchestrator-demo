@@ -28,12 +28,51 @@ import os
 from abc import ABC, abstractmethod
 
 from dotenv import load_dotenv
-from langchain_anthropic import ChatAnthropic
 from langgraph.checkpoint.memory import InMemorySaver
 from thenvoi import Agent
 from thenvoi.adapters import LangGraphAdapter
 
 logger = logging.getLogger(__name__)
+
+
+def create_llm():
+    """
+    Create the LLM instance based on available API keys.
+
+    Checks environment variables in order:
+    1. ANTHROPIC_API_KEY → ChatAnthropic
+    2. OPENAI_API_KEY → ChatOpenAI
+
+    The model name can be overridden with LLM_MODEL env var.
+
+    Returns:
+        A LangChain BaseChatModel instance.
+
+    Raises:
+        ValueError: If neither ANTHROPIC_API_KEY nor OPENAI_API_KEY is set.
+    """
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    openai_key = os.environ.get("OPENAI_API_KEY", "")
+    model_override = os.environ.get("LLM_MODEL", "")
+
+    if anthropic_key:
+        from langchain_anthropic import ChatAnthropic
+
+        model = model_override or "claude-sonnet-4-5-20250929"
+        logger.info(f"Using Anthropic LLM: {model}")
+        return ChatAnthropic(model=model)
+
+    if openai_key:
+        from langchain_openai import ChatOpenAI
+
+        model = model_override or "gpt-5"
+        logger.info(f"Using OpenAI LLM: {model}")
+        return ChatOpenAI(model=model)
+
+    raise ValueError(
+        "No LLM API key found. Set either ANTHROPIC_API_KEY or OPENAI_API_KEY "
+        "in your .env file."
+    )
 
 
 class BaseSpecialist(ABC):
@@ -211,7 +250,7 @@ For errors:
         custom_section = self.build_custom_section()
 
         adapter = LangGraphAdapter(
-            llm=ChatAnthropic(model="claude-sonnet-4-5-20250929"),
+            llm=create_llm(),
             checkpointer=InMemorySaver(),
             custom_section=custom_section,
             additional_tools=self.additional_tools,

@@ -258,6 +258,81 @@ class TestBuildOrchestratorPrompt:
 
 
 # ---------------------------------------------------------------------------
+# create_llm tests
+# ---------------------------------------------------------------------------
+
+class TestCreateLlm:
+    """Test the create_llm() LLM factory function."""
+
+    def test_anthropic_key_returns_chat_anthropic(self, monkeypatch):
+        """When ANTHROPIC_API_KEY is set, returns ChatAnthropic."""
+        from agents.base_specialist import create_llm
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("LLM_MODEL", raising=False)
+
+        llm = create_llm()
+        assert type(llm).__name__ == "ChatAnthropic"
+        assert llm.model == "claude-sonnet-4-5-20250929"
+
+    def test_openai_key_returns_chat_openai(self, monkeypatch):
+        """When OPENAI_API_KEY is set (and no Anthropic key), returns ChatOpenAI."""
+        from agents.base_specialist import create_llm
+
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        monkeypatch.delenv("LLM_MODEL", raising=False)
+
+        llm = create_llm()
+        assert type(llm).__name__ == "ChatOpenAI"
+        assert llm.model_name == "gpt-5"
+
+    def test_anthropic_takes_priority_over_openai(self, monkeypatch):
+        """When both keys are set, Anthropic takes priority."""
+        from agents.base_specialist import create_llm
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        monkeypatch.delenv("LLM_MODEL", raising=False)
+
+        llm = create_llm()
+        assert type(llm).__name__ == "ChatAnthropic"
+
+    def test_no_key_raises_value_error(self, monkeypatch):
+        """When neither key is set, raises ValueError."""
+        from agents.base_specialist import create_llm
+
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        with pytest.raises(ValueError, match="No LLM API key found"):
+            create_llm()
+
+    def test_llm_model_override_anthropic(self, monkeypatch):
+        """LLM_MODEL overrides the default Anthropic model name."""
+        from agents.base_specialist import create_llm
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.setenv("LLM_MODEL", "claude-opus-4-6")
+
+        llm = create_llm()
+        assert llm.model == "claude-opus-4-6"
+
+    def test_llm_model_override_openai(self, monkeypatch):
+        """LLM_MODEL overrides the default OpenAI model name."""
+        from agents.base_specialist import create_llm
+
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        monkeypatch.setenv("LLM_MODEL", "gpt-4o")
+
+        llm = create_llm()
+        assert llm.model_name == "gpt-4o"
+
+
+# ---------------------------------------------------------------------------
 # BaseSpecialist tests
 # ---------------------------------------------------------------------------
 
