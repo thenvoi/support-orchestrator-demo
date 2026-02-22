@@ -230,7 +230,6 @@ class OrchestratorAdapter(LangGraphAdapter):
                     room_id=room_id,
                     rest=tools.rest,
                     participants=None,
-                    agent_id=getattr(tools, '_agent_id', None),
                 )
                 # Load participants for mention resolution
                 try:
