@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard — Acme Analytics</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #1a1a2e; }
+
+        .navbar { background: #1a1a2e; color: white; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; }
+        .navbar h1 { font-size: 18px; font-weight: 600; }
+        .navbar .user { font-size: 14px; color: #a0a0b0; }
+
+        .toolbar { background: white; border-bottom: 1px solid #e2e8f0; padding: 12px 24px; display: flex; align-items: center; gap: 12px; }
+        .toolbar .title { font-size: 16px; font-weight: 500; flex: 1; }
+
+        .btn { padding: 8px 16px; border-radius: 6px; border: 1px solid #d1d5db; background: white; cursor: pointer; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; transition: all 0.15s; }
+        .btn:hover { background: #f9fafb; border-color: #9ca3af; }
+        .btn-primary { background: #3b82f6; color: white; border-color: #3b82f6; }
+        .btn-primary:hover { background: #2563eb; }
+
+        .spinner { display: none; width: 16px; height: 16px; border: 2px solid #ffffff40; border-top-color: white; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        .btn.loading .spinner { display: inline-block; }
+        .btn.loading .btn-text { opacity: 0.7; }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .content { padding: 24px; }
+        .card { background: white; border-radius: 8px; border: 1px solid #e2e8f0; padding: 20px; margin-bottom: 16px; }
+        .card h3 { font-size: 14px; color: #6b7280; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 8px 12px; font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid #e2e8f0; }
+        td { padding: 10px 12px; font-size: 14px; border-bottom: 1px solid #f1f5f9; }
+        tr:hover td { background: #f8fafc; }
+
+        .status { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+        .status-active { background: #dcfce7; color: #166534; }
+        .status-pending { background: #fef3c7; color: #92400e; }
+        .status-error { background: #fee2e2; color: #991b1b; }
+
+        .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+        .stat-card { background: white; border-radius: 8px; border: 1px solid #e2e8f0; padding: 16px; }
+        .stat-card .label { font-size: 12px; color: #6b7280; text-transform: uppercase; }
+        .stat-card .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <h1>Acme Analytics</h1>
+        <span class="user">sarah@acme.com (Pro)</span>
+    </div>
+
+    <div class="toolbar">
+        <span class="title">Dashboard — Q4 2025 Report</span>
+        <button class="btn" onclick="refreshData()">Refresh</button>
+        <button class="btn btn-primary" id="export-btn" onclick="exportCSV()">
+            <span class="spinner" id="export-spinner"></span>
+            <span class="btn-text">Export to CSV</span>
+        </button>
+    </div>
+
+    <div class="content">
+        <div class="stats">
+            <div class="stat-card">
+                <div class="label">Total Records</div>
+                <div class="value">2,847</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Active Users</div>
+                <div class="value">1,203</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Revenue (Q4)</div>
+                <div class="value">$482K</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Growth</div>
+                <div class="value">+18%</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Recent Activity</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Event</th>
+                        <th>User</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>2026-02-19</td>
+                        <td>Dashboard export attempted</td>
+                        <td>sarah@acme.com</td>
+                        <td><span class="status status-error">Failed</span></td>
+                    </tr>
+                    <tr>
+                        <td>2026-02-18</td>
+                        <td>New user signup</td>
+                        <td>alex@devshop.dev</td>
+                        <td><span class="status status-active">Active</span></td>
+                    </tr>
+                    <tr>
+                        <td>2026-02-18</td>
+                        <td>API key generated</td>
+                        <td>maria@bigcorp.com</td>
+                        <td><span class="status status-active">Active</span></td>
+                    </tr>
+                    <tr>
+                        <td>2026-02-17</td>
+                        <td>Dashboard export attempted</td>
+                        <td>raj@finserv.co</td>
+                        <td><span class="status status-error">Failed</span></td>
+                    </tr>
+                    <tr>
+                        <td>2026-02-17</td>
+                        <td>Plan upgrade</td>
+                        <td>lisa@oceanview.co</td>
+                        <td><span class="status status-active">Active</span></td>
+                    </tr>
+                    <tr>
+                        <td>2026-02-16</td>
+                        <td>Report scheduled</td>
+                        <td>yuki@mediahub.jp</td>
+                        <td><span class="status status-pending">Pending</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        function exportCSV() {
+            const btn = document.getElementById('export-btn');
+
+            // Prevent double-click
+            if (btn.classList.contains('loading')) return;
+
+            btn.classList.add('loading');
+            console.log('[ExportService] Starting CSV export for dashboard Q4-2025...');
+            console.log('[ExportService] Query: SELECT * FROM dashboard_events WHERE quarter = "Q4-2025"');
+            console.log('[ExportService] Estimated rows: 2847');
+
+            // Simulate the timeout error after 2 seconds
+            setTimeout(function() {
+                console.error('TimeoutError: Export query exceeded 30s limit');
+                console.error('[ExportService] Export failed: query timeout on datasets with >500 rows');
+                console.error('[ExportService] Suggestion: Apply filters to reduce dataset below 500 rows');
+
+                // Button stays in loading state (broken — spinner never resolves)
+                // This is intentional to demonstrate the bug
+            }, 2000);
+        }
+
+        function refreshData() {
+            console.log('[Dashboard] Refreshing data...');
+            console.log('[Dashboard] Data refreshed successfully.');
+        }
+    </script>
+</body>
+</html>
