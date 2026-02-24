@@ -1,0 +1,310 @@
+/* ==========================================================================
+   Support Orchestrator — Message Flow Panel Styles
+   ========================================================================== */
+
+/* ---------- Message List Overrides ---------- */
+.message-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.message-list__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 40px 16px;
+  text-align: center;
+}
+
+.message-list__empty-icon {
+  font-size: 28px;
+  opacity: 0.4;
+}
+
+.message-list__empty-text {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* ---------- Message Entry ---------- */
+.mf-entry {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  animation: mf-slide-in-right 0.3s ease both;
+}
+
+.mf-entry:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.mf-entry:last-child {
+  border-bottom: none;
+}
+
+/* ---------- Slide-In Animation ---------- */
+@keyframes mf-slide-in-right {
+  0% {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ---------- Entry Header Row ---------- */
+.mf-entry__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* Colored sender dot */
+.mf-entry__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Route label: "Sender -> Recipient" */
+.mf-entry__route {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.mf-entry__arrow {
+  color: var(--text-muted);
+  font-weight: 400;
+  margin: 0 1px;
+}
+
+/* Type badge */
+.mf-entry__badge {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+
+.mf-entry__badge--task_request {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.25);
+}
+
+.mf-entry__badge--task_result {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.mf-entry__badge--user_message {
+  background: rgba(6, 182, 212, 0.15);
+  color: #22d3ee;
+  border: 1px solid rgba(6, 182, 212, 0.25);
+}
+
+.mf-entry__badge--acknowledgment {
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+  border: 1px solid rgba(139, 92, 246, 0.25);
+}
+
+.mf-entry__badge--dispatch {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.mf-entry__badge--final_response {
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+  border: 1px solid rgba(139, 92, 246, 0.25);
+}
+
+.mf-entry__badge--status {
+  background: rgba(100, 116, 139, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(100, 116, 139, 0.25);
+}
+
+.mf-entry__badge--result {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+/* Timestamp */
+.mf-entry__time {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+}
+
+/* ---------- Content Preview ---------- */
+.mf-entry__preview {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin-top: 5px;
+  padding-left: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- Expandable JSON Detail ---------- */
+.mf-entry__detail {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.25s ease,
+              margin 0.25s ease;
+  opacity: 0;
+  margin-top: 0;
+}
+
+.mf-entry--expanded .mf-entry__detail {
+  max-height: 600px;
+  opacity: 1;
+  margin-top: 8px;
+}
+
+.mf-entry__json {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  padding: 10px 12px;
+  margin-left: 15px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-x: auto;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* ---------- JSON Syntax Highlighting ---------- */
+.mf-json-key {
+  color: #a78bfa;            /* Default purple for keys, overridden inline per agent */
+}
+
+.mf-json-string {
+  color: #34d399;            /* Green strings */
+}
+
+.mf-json-number {
+  color: #60a5fa;            /* Blue numbers */
+}
+
+.mf-json-bool {
+  color: #fbbf24;            /* Amber booleans */
+}
+
+.mf-json-null {
+  color: #94a3b8;            /* Muted null */
+}
+
+.mf-json-brace {
+  color: var(--text-muted);  /* Structural punctuation */
+}
+
+/* ---------- Expand Indicator ---------- */
+.mf-entry__expand-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: auto;
+  padding-left: 8px;
+  flex-shrink: 0;
+  transition: transform 0.25s ease;
+}
+
+.mf-entry--expanded .mf-entry__expand-hint {
+  transform: rotate(90deg);
+}
+
+/* ---------- Message Flow Scrollbar ---------- */
+.message-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.message-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.message-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+}
+
+.message-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* ---------- Flash highlight on new message ---------- */
+@keyframes mf-flash {
+  0% {
+    background: rgba(139, 92, 246, 0.12);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+.mf-entry--flash {
+  opacity: 1;
+  transform: translateX(0);
+  animation: mf-flash 0.8s ease-out forwards;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 900px) {
+  .mf-entry {
+    padding: 8px 10px;
+  }
+
+  .mf-entry__route {
+    font-size: 11px;
+  }
+
+  .mf-entry__badge {
+    font-size: 8px;
+    padding: 1px 4px;
+  }
+
+  .mf-entry__preview {
+    font-size: 11px;
+  }
+}
