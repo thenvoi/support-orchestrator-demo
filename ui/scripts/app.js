@@ -54,6 +54,7 @@
     messages: [],
     timelineEvents: [],
     connectionStatus: 'disconnected', // 'disconnected' | 'connected' | 'demo'
+    bridgeMode: null,                 // 'live' | 'demo_available' | null
     currentPhase: 'idle',             // 'idle' | 'running' | 'complete'
     demoStartTime: null,
     elapsedMs: 0,
@@ -530,6 +531,9 @@
         /* ---- Bridge status updates ---- */
         case 'bridge_status': {
           var status = data.status;
+          if (status === 'live' || status === 'demo_available') {
+            AppState.bridgeMode = status;
+          }
           if (status === 'connected' || status === 'live') {
             AppState.connectionStatus = 'connected';
             EventBus.emit('connection:change', 'connected');
@@ -539,6 +543,12 @@
               EventBus.emit('connection:change', 'connected');
             }
           }
+          break;
+        }
+
+        /* ---- Bridge error (e.g. demo rejected in live mode) ---- */
+        case 'error': {
+          console.warn('[Bridge] Error:', data.message);
           break;
         }
 
@@ -624,11 +634,11 @@
       btnRunDemo.addEventListener('click', function () {
         if (AppState.currentPhase === 'running') return;
         btnRunDemo.disabled = true;
-        /* If connected to the bridge, ask it to run the demo server-side */
-        if (AppState.connectionStatus === 'connected') {
+        /* If bridge is connected in demo mode, run demo server-side */
+        if (AppState.connectionStatus === 'connected' && AppState.bridgeMode === 'demo_available') {
           ConnectionManager.send({ action: 'start_demo' });
         } else {
-          /* Fallback to client-side demo */
+          /* Live mode or disconnected — run client-side demo */
           DemoRunner.start('branchA');
         }
       });
