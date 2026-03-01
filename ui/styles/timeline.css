@@ -1,0 +1,285 @@
+/* ==========================================================================
+   Support Orchestrator — Horizontal Swim-Lane Timeline Styles
+   ========================================================================== */
+
+/* ---------- Root Layout: Fixed Sidebar + Scrollable Area ---------- */
+.tl-root {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ---------- Fixed Sidebar ---------- */
+.tl-sidebar {
+  flex: 0 0 140px;
+  width: 140px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  z-index: 2;
+}
+
+.tl-sidebar-spacer {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.tl-sidebar-name {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  flex-shrink: 0;
+}
+
+/* ---------- Scrollable Area ---------- */
+.tl-scroll-area {
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  position: relative;
+  min-width: 0;
+}
+
+/* Custom scrollbar for the timeline scroll area */
+.tl-scroll-area::-webkit-scrollbar {
+  height: 6px;
+}
+
+.tl-scroll-area::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 3px;
+}
+
+.tl-scroll-area::-webkit-scrollbar-thumb {
+  background: rgba(139, 92, 246, 0.25);
+  border-radius: 3px;
+}
+
+.tl-scroll-area::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 92, 246, 0.4);
+}
+
+/* ---------- Canvas Inner (grows with time) ---------- */
+.tl-canvas-inner {
+  position: relative;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- Time Axis ---------- */
+.tl-axis-row {
+  position: relative;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  background: rgba(10, 14, 26, 0.7);
+}
+
+.tl-axis-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.tl-axis-tick::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: -0.5px;
+  width: 1px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.tl-axis-label {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ---------- Swim Lanes ---------- */
+.tl-lane {
+  position: relative;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  overflow: hidden;
+}
+
+/* ---------- Activity Bars ---------- */
+.tl-bar {
+  position: absolute;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  min-width: 0;
+  will-change: width;
+  transition: opacity 0.2s ease;
+}
+
+/* Active (growing) bars: semi-transparent with animated shimmer */
+.tl-bar--active {
+  opacity: 0.6;
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.08) 50%,
+    transparent 100%
+  );
+  background-size: 60px 100%;
+  animation: tl-bar-shimmer 1.2s linear infinite;
+}
+
+@keyframes tl-bar-shimmer {
+  0%   { background-position: -60px 0; }
+  100% { background-position: 60px 0; }
+}
+
+/* Completed bars: solid fill */
+.tl-bar--complete {
+  opacity: 0.85;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.04);
+}
+
+.tl-bar--complete:hover {
+  opacity: 1;
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.08);
+}
+
+/* Bar label text */
+.tl-bar-label {
+  font-size: 9px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.85);
+  padding: 0 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  user-select: none;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* ---------- "Now" Cursor ---------- */
+.tl-now-cursor {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  border-left: 1px dashed rgba(255, 255, 255, 0.5);
+  z-index: 5;
+  pointer-events: none;
+  will-change: left;
+  transition: left 80ms linear;
+}
+
+.tl-now-cursor::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -3px;
+  width: 7px;
+  height: 7px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.5);
+  animation: tl-cursor-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes tl-cursor-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.5; transform: scale(0.7); }
+}
+
+/* ---------- Phase Markers ---------- */
+.tl-phase-marker {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  background: rgba(139, 92, 246, 0.35);
+  z-index: 3;
+  pointer-events: none;
+}
+
+.tl-phase-marker::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -2px;
+  width: 5px;
+  height: 5px;
+  background: var(--accent-orchestrator);
+  border-radius: 50%;
+}
+
+.tl-phase-label {
+  position: absolute;
+  top: 2px;
+  left: 6px;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--accent-orchestrator);
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  background: rgba(10, 14, 26, 0.7);
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+/* ---------- Override timeline-track from main.css ---------- */
+.timeline-track {
+  padding: 0;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 900px) {
+  .tl-sidebar {
+    flex: 0 0 100px;
+    width: 100px;
+  }
+
+  .tl-sidebar-name {
+    font-size: 10px;
+    padding: 0 8px;
+  }
+}
+
+@media (max-width: 600px) {
+  .tl-sidebar {
+    flex: 0 0 80px;
+    width: 80px;
+  }
+
+  .tl-sidebar-name {
+    font-size: 9px;
+    padding: 0 6px;
+  }
+
+  .tl-bar-label {
+    font-size: 8px;
+    padding: 0 3px;
+  }
+}

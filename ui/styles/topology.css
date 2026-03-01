@@ -1,0 +1,130 @@
+/* ==========================================================================
+   Support Orchestrator — Topology Visualization Styles
+   ========================================================================== */
+
+/* ---------- SVG Container ---------- */
+.topology-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.topology-canvas {
+  min-height: 300px;
+}
+
+/* ---------- Node Hover Effects ---------- */
+.topology-node {
+  cursor: pointer;
+  transition: filter var(--transition-normal);
+}
+
+.topology-node:hover .node-circle {
+  filter: brightness(1.25);
+}
+
+.topology-node:hover .node-label {
+  fill: var(--text-primary);
+}
+
+/* ---------- Pulse Glow Animation ---------- */
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 0.5;
+    r: 50;
+  }
+  50% {
+    opacity: 0.85;
+    r: 56;
+  }
+}
+
+@keyframes pulse-glow-small {
+  0%, 100% {
+    opacity: 0.4;
+    r: 38;
+  }
+  50% {
+    opacity: 0.7;
+    r: 42;
+  }
+}
+
+@keyframes pulse-glow-user {
+  0%, 100% {
+    opacity: 0.35;
+    r: 34;
+  }
+  50% {
+    opacity: 0.6;
+    r: 37;
+  }
+}
+
+/* ---------- Spin Ring Animation ---------- */
+@keyframes spin-ring {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.node-spin-ring {
+  animation: spin-ring 3s linear infinite;
+  transform-origin: center;
+  opacity: 0;
+  transition: opacity var(--transition-normal);
+}
+
+.node-spin-ring--active {
+  opacity: 1;
+}
+
+/* ---------- Particle Trail ---------- */
+.topology-particle {
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.topology-particle-trail {
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+/* ---------- Connection Line Glow ---------- */
+.topology-connection {
+  transition: stroke-opacity var(--transition-normal),
+              filter var(--transition-normal);
+  pointer-events: none;
+}
+
+.topology-connection--active {
+  filter: url(#connection-glow);
+}
+
+/* ---------- Node Status Indicator ---------- */
+.node-status-ring {
+  transition: stroke var(--transition-normal),
+              stroke-opacity var(--transition-normal);
+}
+
+/* ---------- Responsive Scaling ---------- */
+@media (max-width: 1200px) {
+  .topology-canvas {
+    min-height: 250px;
+  }
+}
+
+@media (max-width: 900px) {
+  .topology-canvas {
+    min-height: 200px;
+  }
+}
+
+@media (max-width: 600px) {
+  .topology-canvas {
+    min-height: 180px;
+  }
+}

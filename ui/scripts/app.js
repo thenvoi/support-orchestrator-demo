@@ -166,6 +166,7 @@
           console.warn('[WS] Non-JSON message received:', event.data);
           return;
         }
+        console.log('[WS] Received:', data.type, data);
         EventBus.emit('ws:message', data);
       };
 
@@ -543,6 +544,24 @@
               EventBus.emit('connection:change', 'connected');
             }
           }
+          if (status === 'live_demo_started') {
+            AppState.reset();
+            EventBus.emit('state:reset');
+            AppState.currentPhase = 'running';
+            AppState.demoStartTime = Date.now();
+            EventBus.emit('demo:start', { id: 'live' });
+            /* Start tick timer */
+            if (DemoRunner._tickTimer) clearInterval(DemoRunner._tickTimer);
+            DemoRunner._tickTimer = setInterval(function () {
+              if (AppState.demoStartTime) {
+                AppState.elapsedMs = Date.now() - AppState.demoStartTime;
+                EventBus.emit('demo:tick', AppState.elapsedMs);
+              }
+            }, CONFIG.TIMING.TIMELINE_TICK_MS);
+            /* Start live demo inactivity timeout */
+            clearTimeout(_liveInactivityTimer);
+            _liveInactivityTimer = setTimeout(finishLiveDemo, 120000);
+          }
           break;
         }
 
@@ -554,15 +573,112 @@
 
         /* ---- Raw Thenvoi room messages ---- */
         case 'message': {
+          /* Deduplicate: bridge may send both message_created & message_updated for the same message */
+          if (data.message_id) {
+            if (_seenMessageIds[data.message_id]) break;
+            _seenMessageIds[data.message_id] = true;
+          }
+
           var agentKey = CONFIG.AGENT_NAME_MAP[data.sender] || null;
-          if (!agentKey) break;
+          /* If sender isn't a known agent, treat as user in the user room. */
+          if (!agentKey) {
+            if (data.room === 'R-user-support') {
+              agentKey = 'user';
+            } else {
+              console.log('[WS] Unknown sender:', data.sender, 'in room', data.room);
+              break;
+            }
+          }
+
+          /* Clean up raw content:
+             Thenvoi messages: @[[uuid]] [optional @Handle] <text or JSON>
+             Only strip bracketed UUID mentions, preserve email addresses. */
+          var rawContent = data.content || '';
+          var msgType = 'status';
+          var msgTargets = null;
+
+          /* 1. Strip only @[[uuid]] mention patterns (not general @-refs) */
+          var cleaned = rawContent.replace(/@\[\[[^\]]*\]\]/g, '').trim();
+
+          /* 2. Try to find embedded orchestrator/v1 protocol JSON */
+          var msgText = cleaned;
+          try {
+            var jsonMatch = cleaned.match(/\{[\s\S]*"protocol"\s*:\s*"orchestrator\/v1"[\s\S]*\}/);
+            if (jsonMatch) {
+              var parsed = JSON.parse(jsonMatch[0]);
+              /* Map protocol type to UI message type */
+              switch (parsed.type) {
+                case 'task_request': {
+                  msgType = 'dispatch';
+                  var taskDescriptions = [];
+                  if (parsed.tasks && parsed.tasks.length) {
+                    parsed.tasks.forEach(function (t) {
+                      taskDescriptions.push((t.agent || 'agent') + ': ' + (t.description || t.task || ''));
+                    });
+                  }
+                  msgText = taskDescriptions.length
+                    ? 'Dispatching: ' + taskDescriptions.join('; ')
+                    : 'Dispatching tasks to agents';
+                  msgTargets = parsed.tasks
+                    ? parsed.tasks.map(function (t) { return t.agent || t.target; })
+                    : null;
+                  break;
+                }
+                case 'task_result': {
+                  msgType = 'result';
+                  var _res = parsed.summary || parsed.result || 'Task completed';
+                  if (typeof _res === 'object') {
+                    // Try to extract a human-readable summary from structured results
+                    msgText = _res.summary || _res.text || _res.message || _res.error;
+                    if (!msgText) {
+                      // For search results, describe what was found
+                      if (Array.isArray(_res.matches)) {
+                        msgText = _res.matches.length > 0
+                          ? _res.matches.length + ' matching issue(s) found'
+                          : 'No matching issues found';
+                      } else {
+                        // Fallback: compact JSON preview
+                        var _j = JSON.stringify(_res);
+                        msgText = _j.length > 120 ? _j.substring(0, 117) + '...' : _j;
+                      }
+                    }
+                  } else {
+                    msgText = _res;
+                  }
+                  break;
+                }
+                case 'final_response':
+                  msgType = 'final_response';
+                  msgText = parsed.text || parsed.response || 'Response sent';
+                  break;
+                default:
+                  msgType = 'status';
+                  msgText = parsed.text || parsed.status || cleaned;
+              }
+            } else {
+              /* Not protocol JSON — strip leading @AgentHandle if present */
+              msgText = cleaned.replace(/^@\w+\s*/, '').trim() || cleaned;
+            }
+          } catch (_e) {
+            /* JSON parse failed — use cleaned text */
+            msgText = cleaned.replace(/^@\w+\s*/, '').trim() || cleaned;
+          }
+
+          /* Messages from the user in the user room are user_messages */
+          if (agentKey === 'user') {
+            msgType = 'user_message';
+          }
+
           var msg = AppState.addMessage({
-            type: 'status',
+            type: msgType,
             from: agentKey,
-            text: data.content,
+            text: msgText,
+            targets: msgTargets,
             room: data.room
           });
           EventBus.emit('message:new', msg);
+          /* Reset live inactivity timer on activity */
+          resetLiveInactivityTimer();
           break;
         }
 
@@ -578,6 +694,8 @@
             EventBus.emit('topology:result', { from: agent, to: 'orchestrator' });
           }
           EventBus.emit('state:updated');
+          /* Reset live inactivity timer on activity */
+          resetLiveInactivityTimer();
           break;
         }
 
@@ -630,15 +748,71 @@
 
     /* Wire "Run Demo" button */
     var btnRunDemo = document.getElementById('btn-run-demo');
+    var _liveInactivityTimer = null;
+    var _seenMessageIds = {};  /* Dedup message_created + message_updated */
+
+    /** Resume tick timer if it was stopped (e.g. after inactivity timeout) */
+    function resumeLiveTick() {
+      if (AppState.currentPhase !== 'running') {
+        AppState.currentPhase = 'running';
+      }
+      if (!DemoRunner._tickTimer && AppState.demoStartTime) {
+        DemoRunner._tickTimer = setInterval(function () {
+          AppState.elapsedMs = Date.now() - AppState.demoStartTime;
+          EventBus.emit('demo:tick', AppState.elapsedMs);
+        }, CONFIG.TIMING.TIMELINE_TICK_MS);
+      }
+    }
+
+    /** Reset or start the inactivity timer; resume running state if needed */
+    var _orchestratorIdleTimer = null;
+    function resetLiveInactivityTimer() {
+      if (!AppState.demoStartTime) return;  /* Not in a live demo */
+      resumeLiveTick();
+      clearTimeout(_liveInactivityTimer);
+      _liveInactivityTimer = setTimeout(finishLiveDemo, 120000);
+      /* After 20s of no events, transition WORKING orchestrator to DONE */
+      clearTimeout(_orchestratorIdleTimer);
+      _orchestratorIdleTimer = setTimeout(function () {
+        if (AppState.agents.orchestrator &&
+            AppState.agents.orchestrator.status === 'working') {
+          AppState.setAgentStatus('orchestrator', 'done', 'completed');
+          EventBus.emit('agent:update', { name: 'orchestrator', status: 'done' });
+          EventBus.emit('state:updated');
+        }
+      }, 20000);
+    }
+
+    function finishLiveDemo() {
+      clearTimeout(_liveInactivityTimer);
+      _liveInactivityTimer = null;
+      if (DemoRunner._tickTimer) {
+        clearInterval(DemoRunner._tickTimer);
+        DemoRunner._tickTimer = null;
+      }
+      AppState.currentPhase = 'complete';
+      if (AppState.demoStartTime) {
+        AppState.elapsedMs = Date.now() - AppState.demoStartTime;
+      }
+      EventBus.emit('demo:tick', AppState.elapsedMs);
+      EventBus.emit('demo:complete', {
+        elapsedMs: AppState.elapsedMs,
+        messageCount: AppState.messages.length
+      });
+    }
+
     if (btnRunDemo) {
       btnRunDemo.addEventListener('click', function () {
         if (AppState.currentPhase === 'running') return;
         btnRunDemo.disabled = true;
-        /* If bridge is connected in demo mode, run demo server-side */
-        if (AppState.connectionStatus === 'connected' && AppState.bridgeMode === 'demo_available') {
+        if (AppState.connectionStatus === 'connected' && AppState.bridgeMode === 'live') {
+          /* Live mode — tell bridge to start a live demo */
+          ConnectionManager.send({ action: 'start_live_demo' });
+        } else if (AppState.connectionStatus === 'connected' && AppState.bridgeMode === 'demo_available') {
+          /* Bridge demo mode — run demo server-side */
           ConnectionManager.send({ action: 'start_demo' });
         } else {
-          /* Live mode or disconnected — run client-side demo */
+          /* Disconnected or unknown — fall back to client-side demo */
           DemoRunner.start('branchA');
         }
       });
@@ -650,6 +824,7 @@
       btnReset.addEventListener('click', function () {
         DemoRunner.stop();
         AppState.reset();
+        _seenMessageIds = {};
         AppState.connectionStatus = 'disconnected';
         EventBus.emit('connection:change', 'disconnected');
         EventBus.emit('state:reset');

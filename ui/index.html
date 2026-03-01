@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Support Orchestrator</title>
+  <link rel="stylesheet" href="styles/main.css">
+  <link rel="stylesheet" href="styles/topology.css">
+  <link rel="stylesheet" href="styles/agent-cards.css">
+  <link rel="stylesheet" href="styles/message-flow.css">
+  <link rel="stylesheet" href="styles/timeline.css">
+  <link rel="stylesheet" href="styles/effects.css">
+</head>
+<body>
+
+  <!-- Loading Screen -->
+  <div id="loading-screen" class="loading-screen">
+    <div class="loading-content">
+      <div class="loading-rings">
+        <div class="loading-ring loading-ring--outer"></div>
+        <div class="loading-ring loading-ring--middle"></div>
+        <div class="loading-ring loading-ring--inner"></div>
+        <div class="loading-icon">&#x1F9E0;</div>
+      </div>
+      <h1 class="loading-title">Support Orchestrator</h1>
+      <p class="loading-subtitle">Multi-Agent Intelligence Platform</p>
+      <div class="loading-bar">
+        <div class="loading-bar-fill"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- App Shell -->
+  <div id="app" class="app hidden">
+
+    <!-- Header -->
+    <div class="header" id="header">
+      <div class="header-left">
+        <span class="header-icon">&#x1F9E0;</span>
+        <h1 class="header-title">Support Orchestrator</h1>
+        <span class="header-badge">Multi-Agent</span>
+      </div>
+      <div class="header-center">
+        <span class="connection-status" id="connection-status">
+          <span class="status-dot status-dot--disconnected"></span>
+          <span class="status-label">Disconnected</span>
+        </span>
+      </div>
+      <div class="header-right">
+        <button class="btn btn--primary" id="btn-run-demo">
+          <span class="btn-icon">&#x25B6;</span> Run Demo
+        </button>
+        <button class="btn btn--ghost" id="btn-reset">
+          <span class="btn-icon">&#x21BB;</span> Reset
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="main" id="main">
+      <div class="topology-container" id="topology-container">
+        <div class="panel-header">
+          <h2 class="panel-title">Agent Topology</h2>
+          <span class="panel-badge" id="active-agents-count">0 active</span>
+        </div>
+        <div class="topology-canvas" id="topology-canvas">
+          <!-- Topology visualization rendered by topology.js -->
+        </div>
+      </div>
+
+      <div class="message-flow-container" id="message-flow-container">
+        <div class="panel-header">
+          <h2 class="panel-title">Message Flow</h2>
+          <span class="panel-badge" id="message-count">0 messages</span>
+        </div>
+        <div class="message-list" id="message-list">
+          <!-- Messages rendered by messages.js -->
+        </div>
+      </div>
+    </main>
+
+    <!-- Agent Cards -->
+    <div class="agent-cards-container" id="agent-cards-container">
+      <div class="panel-header">
+        <h2 class="panel-title">Agent Status</h2>
+      </div>
+      <div class="agent-cards-grid" id="agent-cards-grid">
+        <!-- Agent cards rendered by cards.js -->
+      </div>
+    </div>
+
+    <!-- Timeline -->
+    <div class="timeline-container" id="timeline-container">
+      <div class="panel-header">
+        <h2 class="panel-title">Event Timeline</h2>
+        <span class="panel-badge" id="elapsed-time">0.0s</span>
+      </div>
+      <div class="timeline-track" id="timeline-track">
+        <!-- Timeline rendered by timeline.js -->
+      </div>
+    </div>
+
+  </div>
+
+  <script src="scripts/config.js"></script>
+  <script src="scripts/topology.js"></script>
+  <script src="scripts/agent-cards.js"></script>
+  <script src="scripts/message-flow.js"></script>
+  <script src="scripts/timeline.js"></script>
+  <script src="scripts/app.js"></script>
+</body>
+</html>

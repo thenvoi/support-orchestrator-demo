@@ -1,0 +1,431 @@
+/* ==========================================================================
+   Support Orchestrator — Visual Effects & Polish
+   Purely additive layer: enhances existing styles without overriding logic.
+   ========================================================================== */
+
+/* ==========================================================================
+   1. BACKGROUND EFFECTS
+   ========================================================================== */
+
+/* --- Animated Gradient Background --- */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background: linear-gradient(
+    135deg,
+    #070b16 0%,
+    #0d1129 25%,
+    #10122a 50%,
+    #0e0f24 75%,
+    #080c1a 100%
+  );
+  background-size: 400% 400%;
+  animation: fx-bg-shift 15s ease infinite;
+}
+
+@keyframes fx-bg-shift {
+  0%   { background-position: 0% 50%; }
+  25%  { background-position: 100% 25%; }
+  50%  { background-position: 100% 50%; }
+  75%  { background-position: 0% 75%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* --- Faint Grid Pattern Overlay --- */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 49px,
+      rgba(139, 92, 246, 0.03) 49px,
+      rgba(139, 92, 246, 0.03) 50px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 49px,
+      rgba(139, 92, 246, 0.03) 49px,
+      rgba(139, 92, 246, 0.03) 50px
+    );
+}
+
+/* --- Vignette Overlay --- */
+.app::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at 50% 50%,
+    transparent 55%,
+    rgba(0, 0, 0, 0.35) 100%
+  );
+}
+
+/* Ensure all direct children of .app sit above the vignette */
+.app > * {
+  position: relative;
+  z-index: 1;
+}
+
+
+/* ==========================================================================
+   2. GLOW & NEON EFFECTS
+   ========================================================================== */
+
+/* --- Glow Pulse Utility Class --- */
+.glow-pulse {
+  animation: fx-glow-pulse 2s ease-in-out infinite;
+}
+
+@keyframes fx-glow-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 12px rgba(139, 92, 246, 0.2),
+      0 0 24px rgba(139, 92, 246, 0.08);
+  }
+  50% {
+    box-shadow:
+      0 0 20px rgba(139, 92, 246, 0.35),
+      0 0 40px rgba(139, 92, 246, 0.15);
+  }
+}
+
+/* --- Per-agent glow pulse variants --- */
+.glow-pulse--excel {
+  animation: fx-glow-pulse-excel 2s ease-in-out infinite;
+}
+@keyframes fx-glow-pulse-excel {
+  0%, 100% { box-shadow: 0 0 12px rgba(16, 185, 129, 0.2), 0 0 24px rgba(16, 185, 129, 0.08); }
+  50%      { box-shadow: 0 0 20px rgba(16, 185, 129, 0.35), 0 0 40px rgba(16, 185, 129, 0.15); }
+}
+
+.glow-pulse--github {
+  animation: fx-glow-pulse-github 2s ease-in-out infinite;
+}
+@keyframes fx-glow-pulse-github {
+  0%, 100% { box-shadow: 0 0 12px rgba(245, 158, 11, 0.2), 0 0 24px rgba(245, 158, 11, 0.08); }
+  50%      { box-shadow: 0 0 20px rgba(245, 158, 11, 0.35), 0 0 40px rgba(245, 158, 11, 0.15); }
+}
+
+.glow-pulse--browser {
+  animation: fx-glow-pulse-browser 2s ease-in-out infinite;
+}
+@keyframes fx-glow-pulse-browser {
+  0%, 100% { box-shadow: 0 0 12px rgba(59, 130, 246, 0.2), 0 0 24px rgba(59, 130, 246, 0.08); }
+  50%      { box-shadow: 0 0 20px rgba(59, 130, 246, 0.35), 0 0 40px rgba(59, 130, 246, 0.15); }
+}
+
+.glow-pulse--linear {
+  animation: fx-glow-pulse-linear 2s ease-in-out infinite;
+}
+@keyframes fx-glow-pulse-linear {
+  0%, 100% { box-shadow: 0 0 12px rgba(236, 72, 153, 0.2), 0 0 24px rgba(236, 72, 153, 0.08); }
+  50%      { box-shadow: 0 0 20px rgba(236, 72, 153, 0.35), 0 0 40px rgba(236, 72, 153, 0.15); }
+}
+
+.glow-pulse--user {
+  animation: fx-glow-pulse-user 2s ease-in-out infinite;
+}
+@keyframes fx-glow-pulse-user {
+  0%, 100% { box-shadow: 0 0 12px rgba(6, 182, 212, 0.2), 0 0 24px rgba(6, 182, 212, 0.08); }
+  50%      { box-shadow: 0 0 20px rgba(6, 182, 212, 0.35), 0 0 40px rgba(6, 182, 212, 0.15); }
+}
+
+/* --- Enhanced SVG Glow Filters --- */
+.topology-svg .node-glow-filter {
+  filter: blur(8px);
+  opacity: 0.6;
+}
+
+.topology-node--active .node-circle {
+  filter: drop-shadow(0 0 6px currentColor) brightness(1.1);
+}
+
+/* --- Status Badge Glow on State Change --- */
+.agent-card__badge {
+  transition:
+    background 250ms ease,
+    color 250ms ease,
+    box-shadow 250ms ease,
+    transform 180ms ease;
+}
+
+.agent-card__badge--working {
+  animation: fx-badge-glow 1.8s ease-in-out infinite;
+}
+
+@keyframes fx-badge-glow {
+  0%, 100% { filter: brightness(1); }
+  50%      { filter: brightness(1.25); }
+}
+
+
+/* ==========================================================================
+   3. TRANSITIONS — Interactive Element Polish
+   ========================================================================== */
+
+/* --- Global Smooth Transitions on Interactive Elements --- */
+.btn,
+.agent-card,
+.mf-entry,
+.panel-badge,
+.header-badge,
+.tl-bar {
+  transition-duration: 300ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* --- Cards: hover lift + enhanced shadow --- */
+.agent-card:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.35),
+    0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* --- Buttons: brightness + micro-scale on hover --- */
+.btn:hover {
+  filter: brightness(1.1);
+  transform: scale(1.03);
+}
+
+.btn:active {
+  transform: scale(0.97);
+  filter: brightness(0.95);
+}
+
+/* --- Message entries: subtle left-border glow on hover --- */
+.mf-entry:hover {
+  background: rgba(139, 92, 246, 0.04);
+}
+
+/* --- Panel badges: subtle scale on update --- */
+.panel-badge {
+  transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
+              background 300ms ease;
+}
+
+
+/* ==========================================================================
+   4. TYPOGRAPHY ENHANCEMENTS
+   ========================================================================== */
+
+/* --- Title Text Glow --- */
+.header-title {
+  text-shadow:
+    0 0 20px rgba(139, 92, 246, 0.15),
+    0 0 40px rgba(139, 92, 246, 0.05);
+}
+
+.panel-title {
+  text-shadow: 0 0 12px rgba(139, 92, 246, 0.08);
+}
+
+/* --- Monospace Data Letter-Spacing --- */
+.mono,
+.agent-card__elapsed,
+.agent-card__room,
+.mf-entry__time,
+.tl-axis-label,
+.mf-entry__json {
+  letter-spacing: 0.5px;
+}
+
+
+/* ==========================================================================
+   5. HEADER ENHANCEMENTS
+   ========================================================================== */
+
+/* --- Connection Status Dot: Animated Pulse Ring --- */
+.status-dot--connected,
+.status-dot--demo {
+  position: relative;
+}
+
+.status-dot--connected::after,
+.status-dot--demo::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  animation: fx-pulse-ring 2s ease-out infinite;
+}
+
+.status-dot--connected::after {
+  border: 1.5px solid var(--accent-excel);
+}
+
+.status-dot--demo::after {
+  border: 1.5px solid var(--accent-orchestrator);
+}
+
+@keyframes fx-pulse-ring {
+  0% {
+    width: 8px;
+    height: 8px;
+    opacity: 0.7;
+  }
+  100% {
+    width: 22px;
+    height: 22px;
+    opacity: 0;
+  }
+}
+
+/* --- Run Demo Button: Animated Gradient on Hover --- */
+.btn--primary {
+  background-size: 200% 100%;
+  background-image: linear-gradient(
+    90deg,
+    var(--accent-orchestrator) 0%,
+    #6d28d9 50%,
+    var(--accent-orchestrator) 100%
+  );
+  transition:
+    background-position 400ms ease,
+    box-shadow 300ms ease,
+    transform 200ms ease,
+    filter 200ms ease;
+}
+
+.btn--primary:hover {
+  background-position: 100% 0;
+  box-shadow:
+    0 0 20px rgba(139, 92, 246, 0.4),
+    0 0 40px rgba(139, 92, 246, 0.15);
+}
+
+/* --- Loading Spinner State for Run Demo --- */
+.btn--primary.btn--loading {
+  pointer-events: none;
+  position: relative;
+  color: transparent;
+}
+
+.btn--primary.btn--loading::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: fx-spin 0.6s linear infinite;
+}
+
+@keyframes fx-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* --- "Powered by" Branding Text --- */
+.header-left::after {
+  content: 'Powered by Thenvoi';
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  opacity: 0.5;
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
+  transition: opacity 300ms ease;
+}
+
+.header-left:hover::after {
+  opacity: 0.8;
+}
+
+
+/* ==========================================================================
+   6. LOADING SCREEN ENHANCEMENT
+   ========================================================================== */
+
+.loading-screen {
+  background:
+    radial-gradient(ellipse at 30% 40%, rgba(139, 92, 246, 0.06) 0%, transparent 60%),
+    radial-gradient(ellipse at 70% 60%, rgba(59, 130, 246, 0.05) 0%, transparent 60%),
+    var(--bg-primary);
+}
+
+
+/* ==========================================================================
+   7. TOPOLOGY CANVAS POLISH
+   ========================================================================== */
+
+.topology-canvas {
+  background:
+    radial-gradient(
+      ellipse at 50% 50%,
+      rgba(139, 92, 246, 0.02) 0%,
+      transparent 70%
+    );
+}
+
+/* Subtle border glow on topology panel hover */
+.topology-container:hover .topology-canvas {
+  box-shadow: inset 0 0 60px rgba(139, 92, 246, 0.03);
+  transition: box-shadow 600ms ease;
+}
+
+
+/* ==========================================================================
+   8. TIMELINE POLISH
+   ========================================================================== */
+
+/* Gradient fade on left edge of scroll area */
+.tl-scroll-area::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 20px;
+  height: 100%;
+  background: linear-gradient(90deg, var(--bg-secondary) 0%, transparent 100%);
+  z-index: 3;
+  pointer-events: none;
+}
+
+
+/* ==========================================================================
+   9. RESPONSIVE (1024px+ baseline)
+   ========================================================================== */
+
+@media (max-width: 1024px) {
+  /* Stack main panels vertically on smaller viewports */
+  .main {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-cards-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .header-left::after {
+    display: none; /* Hide "Powered by" on narrow screens */
+  }
+}
+
+@media (max-width: 768px) {
+  .agent-cards-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

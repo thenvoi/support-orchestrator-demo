@@ -1,0 +1,345 @@
+/* ==========================================================================
+   Support Orchestrator — Agent Status Cards
+   ========================================================================== */
+
+/* ---------- Card Grid (6 columns, responsive) ---------- */
+.agent-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+  padding: 10px 16px;
+}
+
+@media (max-width: 1400px) {
+  .agent-cards-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 800px) {
+  .agent-cards-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 500px) {
+  .agent-cards-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Card Base ---------- */
+.agent-card {
+  position: relative;
+  background: rgba(26, 34, 64, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--text-muted);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition:
+    box-shadow var(--transition-normal),
+    transform var(--transition-normal),
+    opacity var(--transition-normal),
+    border-color var(--transition-normal);
+  overflow: hidden;
+}
+
+/* Hover elevation */
+.agent-card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.3),
+    0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* ---------- Orchestrator Card — Larger + Double Border ---------- */
+.agent-card--orchestrator {
+  border-left-width: 4px;
+  border-left-style: double;
+  padding: 14px 16px;
+}
+
+/* ---------- Linear Card — Starts Inactive ---------- */
+.agent-card--linear.agent-card--inactive {
+  opacity: 0.5;
+}
+
+.agent-card--linear.agent-card--active {
+  opacity: 1;
+}
+
+/* ---------- Left Border Colors (per agent) ---------- */
+.agent-card--user        { border-left-color: var(--accent-user); }
+.agent-card--orchestrator { border-left-color: var(--accent-orchestrator); }
+.agent-card--excel       { border-left-color: var(--accent-excel); }
+.agent-card--github      { border-left-color: var(--accent-github); }
+.agent-card--browser     { border-left-color: var(--accent-browser); }
+.agent-card--linear      { border-left-color: var(--accent-linear); }
+
+/* ---------- Card Header ---------- */
+.agent-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agent-card__identity {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.agent-card__icon {
+  font-size: 16px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.agent-card--orchestrator .agent-card__icon {
+  font-size: 18px;
+}
+
+.agent-card__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-card--orchestrator .agent-card__name {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* ---------- Status Badge ---------- */
+.agent-card__badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+/* Badge — Idle */
+.agent-card__badge--idle {
+  background: rgba(100, 116, 139, 0.15);
+  color: var(--text-muted);
+}
+
+/* Badge — Working (uses agent accent color) */
+.agent-card__badge--working {
+  color: #fff;
+}
+
+.agent-card--user .agent-card__badge--working {
+  background: rgba(6, 182, 212, 0.25);
+  color: var(--accent-user);
+  box-shadow: 0 0 8px rgba(6, 182, 212, 0.3);
+}
+
+.agent-card--orchestrator .agent-card__badge--working {
+  background: rgba(139, 92, 246, 0.25);
+  color: var(--accent-orchestrator);
+  box-shadow: 0 0 8px rgba(139, 92, 246, 0.3);
+}
+
+.agent-card--excel .agent-card__badge--working {
+  background: rgba(16, 185, 129, 0.25);
+  color: var(--accent-excel);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.3);
+}
+
+.agent-card--github .agent-card__badge--working {
+  background: rgba(245, 158, 11, 0.25);
+  color: var(--accent-github);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.3);
+}
+
+.agent-card--browser .agent-card__badge--working {
+  background: rgba(59, 130, 246, 0.25);
+  color: var(--accent-browser);
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.3);
+}
+
+.agent-card--linear .agent-card__badge--working {
+  background: rgba(236, 72, 153, 0.25);
+  color: var(--accent-linear);
+  box-shadow: 0 0 8px rgba(236, 72, 153, 0.3);
+}
+
+/* Badge — Done */
+.agent-card__badge--done {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--accent-excel);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.25);
+}
+
+/* Badge — Error */
+.agent-card__badge--error {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.25);
+}
+
+/* ---------- Domain Subtitle ---------- */
+.agent-card__domain {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- Task Text ---------- */
+.agent-card__task {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  min-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.agent-card__task--idle {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ---------- Progress Bar ---------- */
+.agent-card__progress {
+  width: 100%;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  position: relative;
+}
+
+.agent-card__progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* Progress fill colors per agent */
+.agent-card--user .agent-card__progress-fill        { background: var(--accent-user); }
+.agent-card--orchestrator .agent-card__progress-fill { background: var(--accent-orchestrator); }
+.agent-card--excel .agent-card__progress-fill        { background: var(--accent-excel); }
+.agent-card--github .agent-card__progress-fill       { background: var(--accent-github); }
+.agent-card--browser .agent-card__progress-fill      { background: var(--accent-browser); }
+.agent-card--linear .agent-card__progress-fill       { background: var(--accent-linear); }
+
+/* Animated indeterminate progress when working */
+.agent-card__progress-fill--working {
+  width: 40% !important;
+  animation: progress-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes progress-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
+/* Full bar when done */
+.agent-card__progress-fill--done {
+  width: 100% !important;
+  background: var(--accent-excel) !important;
+  animation: none;
+}
+
+/* Error bar */
+.agent-card__progress-fill--error {
+  width: 100% !important;
+  background: #ef4444 !important;
+  animation: none;
+}
+
+/* ---------- Footer Row: Elapsed Time + Room ---------- */
+.agent-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.agent-card__elapsed {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+  min-width: 36px;
+}
+
+.agent-card__elapsed--active {
+  color: var(--text-secondary);
+}
+
+.agent-card__room {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+  letter-spacing: 0.02em;
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- Flash Animation for Completion ---------- */
+.agent-card--flash {
+  animation: card-flash 0.6s ease;
+}
+
+@keyframes card-flash {
+  0%   { background: rgba(26, 34, 64, 0.6); }
+  30%  { background: rgba(16, 185, 129, 0.15); }
+  100% { background: rgba(26, 34, 64, 0.6); }
+}
+
+/* ---------- Working Glow on Card ---------- */
+.agent-card--working-glow.agent-card--user {
+  box-shadow: 0 0 16px rgba(6, 182, 212, 0.15);
+}
+
+.agent-card--working-glow.agent-card--orchestrator {
+  box-shadow: 0 0 16px rgba(139, 92, 246, 0.15);
+}
+
+.agent-card--working-glow.agent-card--excel {
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.15);
+}
+
+.agent-card--working-glow.agent-card--github {
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.15);
+}
+
+.agent-card--working-glow.agent-card--browser {
+  box-shadow: 0 0 16px rgba(59, 130, 246, 0.15);
+}
+
+.agent-card--working-glow.agent-card--linear {
+  box-shadow: 0 0 16px rgba(236, 72, 153, 0.15);
+}
