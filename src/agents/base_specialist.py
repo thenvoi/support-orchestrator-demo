@@ -28,8 +28,7 @@ import os
 from abc import ABC, abstractmethod
 
 from dotenv import load_dotenv
-from langgraph.checkpoint.memory import InMemorySaver
-from thenvoi import Agent
+from thenvoi import Agent, SessionConfig
 from thenvoi.adapters import LangGraphAdapter
 
 logger = logging.getLogger(__name__)
@@ -121,36 +120,61 @@ class BaseSpecialist(ABC):
         """Additional LangChain tools for the LangGraphAdapter. Override to customize."""
         return []
 
+    # Maps agent_name -> key in agent_config.yaml
+    _AGENT_CONFIG_KEYS: dict[str, str] = {
+        "ExcelAgent": "excel",
+        "GitHubSupportAgent": "github_support",
+        "BrowserAgent": "browser",
+        "LinearAgent": "linear",
+        "SupportOrchestrator": "support_orchestrator",
+    }
+
     def _load_env(self) -> tuple[str, str, str, str]:
         """
-        Load Thenvoi credentials from environment variables.
+        Load Thenvoi credentials.
 
-        Loads .env from the project root (two levels up from src/agents/).
-        Falls back to existing environment variables if .env is missing.
+        Resolution order:
+        1. Environment variables (THENVOI_AGENT_ID / THENVOI_API_KEY)
+        2. agent_config.yaml (looked up by agent_name)
+        3. .env file (fallback)
 
         Returns:
             Tuple of (agent_id, api_key, ws_url, rest_url)
 
         Raises:
-            ValueError: If required environment variables are missing.
+            ValueError: If required credentials are missing.
         """
-        # Try loading .env from project root
-        project_root = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "..")
-        )
+        # Load .env from project root for ws_url / rest_url
+        src_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        project_root = os.path.abspath(os.path.join(src_dir, ".."))
         dotenv_path = os.path.join(project_root, ".env")
         if os.path.exists(dotenv_path):
             load_dotenv(dotenv_path)
 
         agent_id = os.environ.get("THENVOI_AGENT_ID", "")
         api_key = os.environ.get("THENVOI_API_KEY", "")
+
+        # Auto-resolve from agent_config.yaml if not set via env vars
+        if not agent_id or not api_key:
+            config_key = self._AGENT_CONFIG_KEYS.get(self.agent_name)
+            if config_key:
+                config_path = os.path.join(src_dir, "config", "agent_config.yaml")
+                if os.path.exists(config_path):
+                    import yaml
+                    with open(config_path) as f:
+                        cfg = yaml.safe_load(f) or {}
+                    agent_cfg = cfg.get("agents", {}).get(config_key, {})
+                    agent_id = agent_id or agent_cfg.get("agent_id", "")
+                    api_key = api_key or agent_cfg.get("api_key", "")
+
         ws_url = os.environ.get("THENVOI_WS_URL", "")
         rest_url = os.environ.get("THENVOI_REST_URL", "")
 
         if not agent_id or not api_key:
             raise ValueError(
-                f"{self.agent_name}: THENVOI_AGENT_ID and THENVOI_API_KEY must be set. "
-                "Set them in .env or as environment variables."
+                f"{self.agent_name}: Could not resolve credentials. "
+                "Set THENVOI_AGENT_ID/THENVOI_API_KEY as env vars, "
+                "or ensure agent_config.yaml has an entry for this agent."
             )
         if not ws_url or not rest_url:
             raise ValueError(
@@ -233,7 +257,10 @@ For errors:
 2. **Always use the `thenvoi_send_message` tool** to send your response (never plain text).
 3. **Always include timing data** (started_at, completed_at, processing_ms).
 4. **Generate realistic mock data** that is plausible for the intent and params.
-5. **Do not respond to your own messages** to avoid loops."""
+5. **Do not respond to your own messages** to avoid loops.
+6. **CRITICAL: STOP after sending your task_result.** Once you have called `thenvoi_send_message` with your task_result JSON, your turn is COMPLETE. Do NOT call any more tools after that. Do NOT call thenvoi_send_event, thenvoi_add_participant, thenvoi_get_participants, or any other tool. Just stop.
+7. **CRITICAL — mentions parameter:** When calling `thenvoi_send_message`, ALWAYS set `mentions=['SupportOrchestrator']`. This is the EXACT string to use. Do NOT mention yourself, do NOT mention any human user, do NOT mention UIObserver. Only mention SupportOrchestrator.
+8. **CRITICAL — content format:** The `content` parameter of `thenvoi_send_message` MUST be a raw JSON string following the orchestrator/v1 protocol. Do NOT use markdown, plain text, or any other format. The content MUST start with `{{"protocol":"orchestrator/v1"` and be valid JSON."""
 
     def create_agent(self) -> Agent:
         """
@@ -249,12 +276,53 @@ For errors:
 
         custom_section = self.build_custom_section()
 
+        # No checkpointer: specialists handle independent task_requests and
+        # don't need multi-turn conversation memory.  A persistent checkpointer
+        # causes "non-consecutive system messages" errors because the SDK
+        # injects participants_msg system messages after stored conversation
+        # history from the checkpointer.
         adapter = LangGraphAdapter(
             llm=create_llm(),
-            checkpointer=InMemorySaver(),
             custom_section=custom_section,
             additional_tools=self.additional_tools,
         )
+
+        # Monkey-patch on_message to inject recursion_limit into the
+        # LangGraph config.  Prevents agents from looping >8 tool-call
+        # iterations (default LangGraph limit is 25 which is too high).
+        _orig_on_message = adapter.on_message
+
+        async def _on_message_with_limit(msg, tools, history, participants_msg,
+                                          contacts_msg, *, is_session_bootstrap,
+                                          room_id):
+            # Temporarily patch the graph's astream_events to inject limit
+            graph = adapter._static_graph
+            if graph is not None:
+                _orig_astream = graph.astream_events
+
+                async def _limited_astream(input, *, config=None, **kwargs):
+                    config = config or {}
+                    config.setdefault("recursion_limit", 8)
+                    async for event in _orig_astream(input, config=config, **kwargs):
+                        yield event
+
+                graph.astream_events = _limited_astream
+                try:
+                    return await _orig_on_message(
+                        msg, tools, history, participants_msg, contacts_msg,
+                        is_session_bootstrap=is_session_bootstrap,
+                        room_id=room_id,
+                    )
+                finally:
+                    graph.astream_events = _orig_astream
+            else:
+                return await _orig_on_message(
+                    msg, tools, history, participants_msg, contacts_msg,
+                    is_session_bootstrap=is_session_bootstrap,
+                    room_id=room_id,
+                )
+
+        adapter.on_message = _on_message_with_limit
 
         agent = Agent.create(
             adapter=adapter,
@@ -262,6 +330,7 @@ For errors:
             api_key=api_key,
             ws_url=ws_url,
             rest_url=rest_url,
+            session_config=SessionConfig(enable_context_hydration=False),
         )
 
         logger.info(

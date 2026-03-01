@@ -228,7 +228,10 @@ For errors:
 4. **Always query the real GitHub API** via the `search_github_issues` tool. Never fabricate or mock data.
 5. **If the tool returns an error**, return a task_result with status "error" and include the error message.
 6. **Do not respond to your own messages** to avoid loops.
-7. **Focus on bug triage**: prioritize issues that match the customer's reported symptoms."""
+7. **Focus on bug triage**: prioritize issues that match the customer's reported symptoms.
+8. **CRITICAL — mentions parameter:** When calling `thenvoi_send_message`, ALWAYS set `mentions=['SupportOrchestrator']`. This is the EXACT string to use. Do NOT mention yourself (GitHubSupportAgent), do NOT mention any human user (e.g. roi.shikler), do NOT mention UIObserver. Only mention SupportOrchestrator.
+9. **CRITICAL — content format:** The `content` parameter of `thenvoi_send_message` MUST be a raw JSON string following the orchestrator/v1 protocol. Do NOT use markdown, plain text, or any other format. The content MUST start with `{{"protocol":"orchestrator/v1"` and be valid JSON.
+10. **CRITICAL: STOP after sending your task_result.** Once you have called `thenvoi_send_message` with your task_result JSON, your turn is COMPLETE. Do NOT call any more tools after that. Do NOT call thenvoi_send_event, thenvoi_add_participant, thenvoi_get_participants, or any other tool. Just stop."""
 
 
 async def main() -> None:

@@ -41,7 +41,7 @@ from agents.base_specialist import create_llm
 from dotenv import load_dotenv
 from langchain_core.tools import StructuredTool
 from langgraph.checkpoint.memory import InMemorySaver
-from thenvoi import Agent
+from thenvoi import Agent, SessionConfig
 from thenvoi.adapters import LangGraphAdapter
 from thenvoi.runtime.tools import AgentTools
 
@@ -201,7 +201,7 @@ class OrchestratorAdapter(LangGraphAdapter):
         is_session_bootstrap,
         room_id,
     ):
-        """Override to inject cross-room tools before processing."""
+        """Override to inject cross-room tools and fix system message ordering."""
         # Create cross-room tools dynamically (they need the live tools.rest reference)
         self._cross_room_tools = self._build_cross_room_tools(tools)
 
@@ -209,13 +209,30 @@ class OrchestratorAdapter(LangGraphAdapter):
         original_tools = self.additional_tools
         self.additional_tools = original_tools + self._cross_room_tools
 
+        # Fix for Anthropic "Received multiple non-consecutive system messages":
+        # When is_session_bootstrap=True and there's history, the parent inserts
+        # ("system", system_prompt), then history, then ("system", participants_msg),
+        # which creates non-consecutive system messages. Merge participants/contacts
+        # into _system_prompt temporarily so they stay in the first system block.
+        original_prompt = self._system_prompt
+        extras = []
+        if participants_msg:
+            extras.append(f"\n\n## Current Room Participants\n{participants_msg}")
+        if contacts_msg:
+            extras.append(f"\n\n## Contacts\n{contacts_msg}")
+        if extras:
+            self._system_prompt = original_prompt + "".join(extras)
+
         try:
             await super().on_message(
-                msg, tools, history, participants_msg, contacts_msg,
+                msg, tools, history,
+                participants_msg=None,  # merged into _system_prompt
+                contacts_msg=None,      # merged into _system_prompt
                 is_session_bootstrap=is_session_bootstrap, room_id=room_id,
             )
         finally:
             self.additional_tools = original_tools
+            self._system_prompt = original_prompt
 
     def _build_cross_room_tools(self, tools) -> list:
         """Build LangChain tools for cross-room messaging."""
@@ -524,17 +541,19 @@ Include timestamps in every interaction:
 
 ## Critical Rules
 
-1. **Always acknowledge FIRST** when receiving a customer message. The customer should see a response within 1 second.
-2. **Use the provided room tools** (`send_to_user_room`, `send_to_excel_room`, etc.) for every message. Never respond with plain text.
-3. **Always include mentions** when sending to specialist rooms (the tools handle this via the `mentions` parameter with sensible defaults).
-4. **Do not include mentions** when sending to the user room (the `send_to_user_room` tool has no mentions parameter).
-5. **Do not respond to your own messages** to avoid infinite loops.
-6. **Generate unique task_ids** for every task_request.
-7. **When responding to the customer**, write in natural, empathetic language. Do NOT dump raw JSON.
-8. **Wait for all 3 initial results** before synthesizing a final response (unless one errors out).
-9. **Only invoke LinearAgent** in Branch B (new bug, no GitHub match). Do not invoke it preemptively.
-10. **Use the `repo` parameter** "roi-shikler-thenvoi/demo-product" for GitHub searches (this is the demo product repo).
-11. **Use the URL** "http://localhost:8888/mock_app.html" for browser reproduction (demo app served locally)."""
+1. **Always acknowledge FIRST** when receiving a customer message. Use `send_to_user_room` for the acknowledgment.
+2. **ALWAYS dispatch to ALL 3 specialists** (Excel, GitHub, Browser) for EVERY new customer message. This is MANDATORY — you MUST call `send_to_excel_room`, `send_to_github_room`, AND `send_to_browser_room` for every customer bug report, no exceptions.
+3. **NEVER use `thenvoi_send_message` or `thenvoi_send_event`** for any communication. ONLY use the cross-room tools: `send_to_user_room`, `send_to_excel_room`, `send_to_github_room`, `send_to_browser_room`, `send_to_linear_room`.
+4. **Always include mentions** when sending to specialist rooms (the tools handle this via the `mentions` parameter with sensible defaults).
+5. **Do not include mentions** when sending to the user room (the `send_to_user_room` tool has no mentions parameter).
+6. **Do not respond to your own messages** to avoid infinite loops.
+7. **Generate unique task_ids** for every task_request.
+8. **When responding to the customer**, write in natural, empathetic language. Do NOT dump raw JSON.
+9. **Wait for all 3 initial results** before synthesizing a final response (unless one errors out).
+10. **Only invoke LinearAgent** in Branch B (new bug, no GitHub match). Do not invoke it preemptively.
+11. **Use the `repo` parameter** "roi-shikler-thenvoi/demo-product" for GitHub searches (this is the demo product repo).
+12. **Use the URL** "http://localhost:8888/mock_app.html" for browser reproduction (demo app served locally).
+13. **Ignore conversation history for dispatch decisions.** Treat EVERY customer message as a brand new investigation. NEVER skip dispatching because you see similar messages or results in history."""
 
 
 # ---------------------------------------------------------------------------
@@ -574,6 +593,7 @@ def create_orchestrator(
         api_key=api_key,
         ws_url=ws_url,
         rest_url=rest_url,
+        session_config=SessionConfig(enable_context_hydration=False),
     )
 
     logger.info(
@@ -609,13 +629,27 @@ def _load_env() -> tuple[str, str, str, str]:
 
     agent_id = os.environ.get("THENVOI_AGENT_ID", "")
     api_key = os.environ.get("THENVOI_API_KEY", "")
+
+    # Auto-resolve from agent_config.yaml if not set via env vars
+    if not agent_id or not api_key:
+        src_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        config_path = os.path.join(src_dir, "config", "agent_config.yaml")
+        if os.path.exists(config_path):
+            import yaml
+            with open(config_path) as f:
+                cfg = yaml.safe_load(f) or {}
+            orch_cfg = cfg.get("agents", {}).get("support_orchestrator", {})
+            agent_id = agent_id or orch_cfg.get("agent_id", "")
+            api_key = api_key or orch_cfg.get("api_key", "")
+
     ws_url = os.environ.get("THENVOI_WS_URL", "")
     rest_url = os.environ.get("THENVOI_REST_URL", "")
 
     if not agent_id or not api_key:
         raise ValueError(
-            "SupportOrchestrator: THENVOI_AGENT_ID and THENVOI_API_KEY must be set. "
-            "Set them in .env or as environment variables."
+            "SupportOrchestrator: Could not resolve credentials. "
+            "Set THENVOI_AGENT_ID/THENVOI_API_KEY as env vars, "
+            "or ensure agent_config.yaml has an entry for support_orchestrator."
         )
     if not ws_url or not rest_url:
         raise ValueError(
